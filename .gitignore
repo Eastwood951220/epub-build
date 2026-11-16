@@ -1,0 +1,10 @@
+/target
+/node_modules
+/dist
+/tsconfig.tsbuildinfo
+/src-tauri/target
+/src-tauri/icons/android/
+/src-tauri/icons/ios/
+/.DS_Store
+/.idea/
+/src-tauri/gen/

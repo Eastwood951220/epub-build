@@ -1,0 +1,27 @@
+[package]
+name = "epub-studio"
+version = "0.1.0"
+description = "Cross-platform EPUB editor"
+edition = "2024"
+
+[lib]
+name = "epub_studio"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zip = { version = "9.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+time = { version = "0.3", features = ["formatting", "macros"] }
+base64 = "0.22"
+roxmltree = "0.20"
+regex = "1"
+percent-encoding = "2"
+tempfile = "3"
+rusqlite = { version = "0.37", features = ["bundled"] }
+txt2epub = { path = ".." }
