@@ -68,6 +68,7 @@ fn project_save_load_and_epub_export_round_trip() {
     project.author = "作者".into();
     project.style.body_font_size = 20;
     project.opening_image = Some("data:image/png;base64,iVBORw0KGgo=".into());
+    project.cover_image = Some("data:image/png;base64,iVBORw0KGgo=".into());
     project.chapters[0]
         .html
         .push_str("<p><strong>加粗</strong></p>");
@@ -98,6 +99,13 @@ fn project_save_load_and_epub_export_round_trip() {
         .read_to_string(&mut css)
         .unwrap();
     assert!(css.contains("font-size:20px"));
+    let mut opf = String::new();
+    archive
+        .by_name("OEBPS/content.opf")
+        .unwrap()
+        .read_to_string(&mut opf)
+        .unwrap();
+    assert!(opf.contains("properties=\"cover-image\""));
     assert_eq!(
         archive
             .file_names()
@@ -110,6 +118,10 @@ fn project_save_load_and_epub_export_round_trip() {
     drop(archive);
     let imported = import_book(&epub).unwrap();
     assert_eq!(imported.title, "book");
+    assert_eq!(
+        imported.cover_image.as_deref(),
+        Some("data:image/png;base64,iVBORw0KGgo=")
+    );
     assert_eq!(imported.chapters.len(), 2);
     assert!(imported.chapters[0].html.contains("<strong>加粗</strong>"));
     assert!(imported.chapters[0].html.contains("data:image/png;base64,"));

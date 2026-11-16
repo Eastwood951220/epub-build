@@ -1,11 +1,45 @@
 pub mod assets;
 pub mod project;
+pub mod workspace;
 
 use tauri::Manager;
 
 fn asset_store(app: &tauri::AppHandle) -> Result<assets::AssetStore, String> {
     let directory = app.path().app_data_dir().map_err(|e| e.to_string())?;
     assets::AssetStore::open(&directory.join("assets.sqlite3"))
+}
+
+fn workspace_store(app: &tauri::AppHandle) -> Result<workspace::WorkspaceStore, String> {
+    let directory = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    workspace::WorkspaceStore::open(&directory.join("assets.sqlite3"))
+}
+
+#[tauri::command]
+fn list_workspaces(app: tauri::AppHandle) -> Result<Vec<workspace::WorkspaceSummary>, String> {
+    workspace_store(&app)?.list()
+}
+
+#[tauri::command]
+fn create_workspace(
+    app: tauri::AppHandle,
+    book: project::Project,
+) -> Result<workspace::WorkspaceSummary, String> {
+    workspace_store(&app)?.create(&book)
+}
+
+#[tauri::command]
+fn load_workspace(app: tauri::AppHandle, id: i64) -> Result<project::Project, String> {
+    workspace_store(&app)?.load(id)
+}
+
+#[tauri::command]
+fn save_workspace(app: tauri::AppHandle, id: i64, book: project::Project) -> Result<(), String> {
+    workspace_store(&app)?.save(id, &book)
+}
+
+#[tauri::command]
+fn delete_workspace(app: tauri::AppHandle, id: i64) -> Result<(), String> {
+    workspace_store(&app)?.delete(id)
 }
 
 #[tauri::command]
@@ -69,7 +103,12 @@ pub fn run() {
             list_assets,
             import_asset,
             get_asset,
-            delete_asset
+            delete_asset,
+            list_workspaces,
+            create_workspace,
+            load_workspace,
+            save_workspace,
+            delete_workspace
         ])
         .run(tauri::generate_context!())
         .expect("failed to run EPUB Studio");

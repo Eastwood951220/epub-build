@@ -21,6 +21,8 @@ pub struct Project {
     pub author: String,
     pub language: String,
     pub style: BookStyle,
+    #[serde(default)]
+    pub cover_image: Option<String>,
     pub opening_image: Option<String>,
     pub closing_image: Option<String>,
     #[serde(default)]
@@ -104,6 +106,7 @@ fn import_txt(path: &Path) -> Result<Project, String> {
         author: "未知作者".into(),
         language: "zh-CN".into(),
         style: BookStyle::default(),
+        cover_image: None,
         opening_image: None,
         closing_image: None,
         font_assets: Vec::new(),
@@ -147,7 +150,7 @@ pub fn load_project(path: &Path) -> Result<Project, String> {
     Ok(book)
 }
 
-fn validate_project(book: &Project) -> Result<(), String> {
+pub fn validate_project(book: &Project) -> Result<(), String> {
     if book.version != 1 {
         return Err("不支持的项目文件版本".into());
     }
@@ -327,6 +330,11 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
         compressed,
     )?;
     let mut assets = Vec::new();
+    let cover_name = book
+        .cover_image
+        .as_ref()
+        .map(|image| add_image(image, &mut assets))
+        .transpose()?;
     let mut manifest = String::from(
         "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/><item id=\"css\" href=\"styles/book.css\" media-type=\"text/css\"/>",
     );
@@ -387,8 +395,13 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
         )?;
     }
     for (index, asset) in assets.iter().enumerate() {
+        let properties = if cover_name.as_deref() == Some(&asset.name) {
+            " properties=\"cover-image\""
+        } else {
+            ""
+        };
         manifest.push_str(&format!(
-            "<item id=\"image-{}\" href=\"images/{}\" media-type=\"{}\"/>",
+            "<item id=\"image-{}\" href=\"images/{}\" media-type=\"{}\"{properties}/>",
             index + 1,
             asset.name,
             asset.media_type
@@ -522,6 +535,29 @@ fn import_epub(path: &Path) -> Result<Project, String> {
             ))
         })
         .collect();
+    let cover_id = manifest
+        .iter()
+        .find(|(_, (_, properties))| {
+            properties
+                .split_whitespace()
+                .any(|part| part == "cover-image")
+        })
+        .map(|(id, _)| id.as_str())
+        .or_else(|| {
+            opf_doc
+                .descendants()
+                .find(|node| node.has_tag_name("meta") && node.attribute("name") == Some("cover"))
+                .and_then(|node| node.attribute("content"))
+        });
+    let cover_image = cover_id
+        .and_then(|id| manifest.get(id))
+        .and_then(|(href, _)| resolve_zip_path(&opf_path, href).ok())
+        .and_then(|path| {
+            let mime = image_mime(&path)?;
+            let mut bytes = Vec::new();
+            archive.by_name(&path).ok()?.read_to_end(&mut bytes).ok()?;
+            Some(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
+        });
     let spine = opf_doc
         .descendants()
         .find(|n| n.has_tag_name("spine"))
@@ -643,11 +679,22 @@ fn import_epub(path: &Path) -> Result<Project, String> {
         author,
         language,
         style: BookStyle::default(),
+        cover_image,
         opening_image: None,
         closing_image: None,
         font_assets: Vec::new(),
         chapters,
     })
+}
+
+fn image_mime(path: &str) -> Option<&'static str> {
+    match path.rsplit('.').next()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "svg" => Some("image/svg+xml"),
+        _ => None,
+    }
 }
 
 struct ImportedChapter {

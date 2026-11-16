@@ -6,11 +6,11 @@ Make a Windows/macOS editor for TXT and EPUB books. Users can adjust book-wide h
 
 ## Approach
 
-Tauri 2 hosts a React/TypeScript editor. Rust owns filesystem access, TXT/EPUB import, project persistence, and EPUB packaging. The editor keeps a single serializable project model with chapter HTML plus global style and optional shared boundary images. Tiptap supplies selection-level formatting and inline images. A read-only preview renders the same chapter HTML and global CSS used for export.
+Tauri 2 hosts a React/TypeScript editor. Rust owns filesystem access, TXT/EPUB import, SQLite project and asset persistence, and EPUB packaging. The first screen is a book-shelf project list with separate shared font and image library tabs. Each project keeps a serializable book model with chapter HTML, global style, optional cover, and shared boundary images. Tiptap supplies selection-level formatting and inline images. A read-only preview renders the same chapter HTML and global CSS used for export.
 
 ## Decisions
 
-- A project saves as `.epubstudio.json` with embedded image data so it reopens without external assets.
+- Projects save to SQLite in the app data directory. A portable `.epubstudio.json` can be exported with embedded image and font data.
 - TXT chapter detection reuses the existing Rust library. Existing EPUB chapter order comes from its package spine.
 - EPUB import preserves common text blocks, inline formatting, and embedded images. Unsupported scripts and arbitrary EPUB CSS are discarded for safe editing.
 - The global style controls title/body font family, size, line height, and alignment. Selection formatting in Tiptap overrides it locally.

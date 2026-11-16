@@ -9,12 +9,13 @@ import { open, save } from '@tauri-apps/plugin-dialog'
 import DOMPurify from 'dompurify'
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, BookOpen, ChevronDown,
-  ChevronUp, Download, FilePlus2, FolderOpen, ImagePlus, Italic, List,
+  ChevronUp, Download, FolderOpen, ImagePlus, Italic, List,
   ListOrdered, Plus, Redo2, Save, Trash2, Undo2, X,
-  LibraryBig,
+  LibraryBig, House,
 } from 'lucide-react'
 import { createEmptyProject, fontChoices, previewStyles, reindexChapterLinks, type BookStyle, type Project } from './model'
 import { PreserveIds } from './PreserveIds'
+import Home, { type WorkspaceSummary } from './Home'
 
 type View = 'edit' | 'preview'
 type AssetKind = 'font' | 'image'
@@ -28,14 +29,16 @@ function safeName(name: string) { return name.replace(/[\\/:*?"<>|]/g, '_').trim
 
 export default function App() {
   const [book, setBook] = useState<Project>(createEmptyProject)
+  const [screen, setScreen] = useState<'home' | 'editor'>('home')
+  const [workspaceId, setWorkspaceId] = useState<number | null>(null)
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
   const [selectedId, setSelectedId] = useState(book.chapters[0].id)
   const [view, setView] = useState<View>('edit')
   const [settingsTab, setSettingsTab] = useState<'settings' | 'library'>('settings')
   const [assetKind, setAssetKind] = useState<AssetKind>('font')
   const [assets, setAssets] = useState<AssetSummary[]>([])
   const [previewAsset, setPreviewAsset] = useState<AssetData | null>(null)
-  const [projectPath, setProjectPath] = useState<string | null>(null)
-  const [dirty, setDirty] = useState(true)
+  const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('准备就绪')
   const [error, setError] = useState('')
@@ -72,6 +75,10 @@ export default function App() {
     void invoke<AssetSummary[]>('list_assets', { kind: assetKind }).then(setAssets).catch(cause => setError(errorMessage(cause)))
   }, [settingsTab, assetKind])
 
+  useEffect(() => {
+    void invoke<WorkspaceSummary[]>('list_workspaces').then(setWorkspaces).catch(cause => setError(errorMessage(cause)))
+  }, [])
+
   const selectedChapter = book.chapters.find(item => item.id === selectedId) ?? book.chapters[0]
   const selectedIndex = book.chapters.findIndex(item => item.id === selectedId)
 
@@ -84,14 +91,16 @@ export default function App() {
     updateBook(previous => ({ ...previous, style: { ...previous.style, [key]: value } }))
   }
 
-  function replaceBook(next: Project, path: string | null, message: string) {
-    next = { ...next, fontAssets: next.fontAssets ?? [] }
+  function replaceBook(next: Project, id: number, message: string) {
+    next = { ...next, coverImage: next.coverImage ?? null, fontAssets: next.fontAssets ?? [] }
     editor?.commands.setContent(next.chapters[0].html, { emitUpdate: false })
     setBook(next)
     setSelectedId(next.chapters[0].id)
-    setProjectPath(path)
+    setWorkspaceId(id)
     setDirty(false)
     setView('edit')
+    setSettingsTab('settings')
+    setScreen('editor')
     setError('')
     setNotice(message)
   }
@@ -110,8 +119,8 @@ export default function App() {
     if (typeof path !== 'string') return
     await withBusy(async () => {
       const next = await invoke<Project>('import_book', { path })
-      replaceBook(next, null, `已导入 ${next.chapters.length} 个章节。请保存项目以保留编辑。`)
-      setDirty(true)
+      const created = await invoke<WorkspaceSummary>('create_workspace', { book: next })
+      replaceBook(next, created.id, `已导入 ${next.chapters.length} 个章节并创建工程`)
     })
   }
 
@@ -119,18 +128,62 @@ export default function App() {
     if (!canReplace()) return
     const path = await open({ multiple: false, filters: [{ name: 'EPUB Studio 项目', extensions: ['json'] }] })
     if (typeof path !== 'string') return
-    await withBusy(async () => replaceBook(await invoke<Project>('load_project', { path }), path, '项目已打开'))
+    await withBusy(async () => {
+      const next = await invoke<Project>('load_project', { path })
+      const created = await invoke<WorkspaceSummary>('create_workspace', { book: next })
+      replaceBook(next, created.id, '项目文件已导入为新工程')
+    })
   }
 
   async function saveProject() {
-    let path = projectPath
-    if (!path) path = await save({ defaultPath: `${safeName(book.title)}.epubstudio.json`, filters: [{ name: 'EPUB Studio 项目', extensions: ['json'] }] })
+    if (workspaceId === null) return
+    await withBusy(async () => {
+      await invoke('save_workspace', { id: workspaceId, book })
+      setDirty(false)
+      setNotice('工程已保存')
+    })
+  }
+
+  async function saveProjectFile() {
+    const path = await save({ defaultPath: `${safeName(book.title)}.epubstudio.json`, filters: [{ name: 'EPUB Studio 项目', extensions: ['json'] }] })
     if (!path) return
     await withBusy(async () => {
       await invoke('save_project', { path, book })
-      setProjectPath(path)
+      setNotice(`项目文件已导出：${path}`)
+    })
+  }
+
+  async function createWorkspace(details: { title: string; author: string; language: string }) {
+    await withBusy(async () => {
+      const next = createEmptyProject()
+      next.title = details.title.trim()
+      next.author = details.author.trim() || '未知作者'
+      next.language = details.language.trim() || 'zh-CN'
+      const created = await invoke<WorkspaceSummary>('create_workspace', { book: next })
+      replaceBook(next, created.id, '工程已创建')
+    })
+  }
+
+  async function openWorkspace(id: number) {
+    if (!canReplace()) return
+    await withBusy(async () => replaceBook(await invoke<Project>('load_workspace', { id }), id, '工程已打开'))
+  }
+
+  async function deleteWorkspace(id: number) {
+    await withBusy(async () => {
+      await invoke('delete_workspace', { id })
+      setWorkspaces(await invoke<WorkspaceSummary[]>('list_workspaces'))
+      setNotice('工程已删除')
+    })
+  }
+
+  async function goHome() {
+    if (!canReplace()) return
+    await withBusy(async () => {
+      setWorkspaces(await invoke<WorkspaceSummary[]>('list_workspaces'))
+      setScreen('home')
+      setWorkspaceId(null)
       setDirty(false)
-      setNotice(`项目已保存：${path}`)
     })
   }
 
@@ -143,7 +196,7 @@ export default function App() {
     })
   }
 
-  async function chooseImage(target: 'openingImage' | 'closingImage' | 'inline') {
+  async function chooseImage(target: 'coverImage' | 'openingImage' | 'closingImage' | 'inline') {
     const path = await open({ multiple: false, filters: imageFilters })
     if (typeof path !== 'string') return
     await withBusy(async () => {
@@ -178,7 +231,7 @@ export default function App() {
     })
   }
 
-  async function useLibraryImage(asset: AssetSummary, target: 'openingImage' | 'closingImage' | 'inline') {
+  async function useLibraryImage(asset: AssetSummary, target: 'coverImage' | 'openingImage' | 'closingImage' | 'inline') {
     await withBusy(async () => {
       const data = await invoke<AssetData>('get_asset', { id: asset.id })
       if (target === 'inline') { setView('edit'); editor?.chain().focus().setImage({ src: data.dataUri, alt: asset.name }).run() }
@@ -253,16 +306,28 @@ export default function App() {
   const availableFonts = [...fontChoices, ...(book.fontAssets ?? []).map(font => ({ value: font.family, label: font.name }))]
   const embeddedFontCss = (book.fontAssets ?? []).filter(font => /^EPUBStudioFont\d+$/.test(font.family) && /^font\/(ttf|otf|woff|woff2)$/.test(font.mime) && new RegExp(`^data:${font.mime};base64,[A-Za-z0-9+/=]+$`).test(font.dataUri)).map(font => `@font-face{font-family:'${font.family}';src:url('${font.dataUri}')}`).join('\n') + (previewAsset?.kind === 'font' ? `@font-face{font-family:'EPUBStudioFont${previewAsset.id}';src:url('${previewAsset.dataUri}')}` : '')
 
+  if (screen === 'home') return <Home
+    workspaces={workspaces}
+    busy={busy}
+    error={error}
+    notice={notice}
+    onCreate={createWorkspace}
+    onOpen={openWorkspace}
+    onDelete={deleteWorkspace}
+    onImportBook={importFile}
+    onImportProject={openProject}
+  />
+
   return <div className="app-shell">
     <style>{embeddedFontCss}</style>
     <header className="topbar">
       <div className="brand"><div className="brand-icon"><BookOpen size={22} strokeWidth={2.3} /></div><div><strong>EPUB Studio</strong><span>电子书编辑器</span></div></div>
       <div className="document-state"><span className="document-name">{book.title}</span><span className={dirty ? 'state-dot dirty' : 'state-dot'} />{dirty ? '未保存' : '已保存'}</div>
       <div className="top-actions">
-        <button className="button subtle" disabled={busy} onClick={importFile}><FilePlus2 size={17}/>导入 TXT / EPUB</button>
-        <button className="button subtle" disabled={busy} onClick={openProject}><FolderOpen size={17}/>打开项目</button>
+        <button className="button subtle" disabled={busy} onClick={goHome}><House size={17}/>工程列表</button>
         <span className="divider" />
-        <button className="button outline" disabled={busy} onClick={saveProject}><Save size={17}/>保存项目</button>
+        <button className="button subtle" disabled={busy} onClick={saveProjectFile}><FolderOpen size={17}/>导出项目文件</button>
+        <button className="button outline" disabled={busy || !dirty} onClick={saveProject}><Save size={17}/>保存工程</button>
         <button className="button primary" disabled={busy} onClick={exportBook}><Download size={17}/>导出 EPUB</button>
       </div>
     </header>
@@ -293,10 +358,11 @@ export default function App() {
 
       <aside className="settings-panel" aria-label="图书设置与资源库"><div className="settings-inner"><div className="settings-tabs" role="tablist" aria-label="侧边栏"><button role="tab" aria-selected={settingsTab === 'settings'} className={settingsTab === 'settings' ? 'active' : ''} onClick={() => setSettingsTab('settings')}>图书设置</button><button role="tab" aria-selected={settingsTab === 'library'} className={settingsTab === 'library' ? 'active' : ''} onClick={() => setSettingsTab('library')}><LibraryBig size={15}/>资源库</button></div>{settingsTab === 'settings' ? <><div className="panel-heading"><div><span className="eyebrow">统一管理</span><h2>图书设置</h2></div></div>
         <section className="setting-section"><h3>基本信息</h3><label>书名<input value={book.title} onChange={event => updateBook(previous => ({ ...previous, title: event.target.value }))}/></label><label>作者<input value={book.author} onChange={event => updateBook(previous => ({ ...previous, author: event.target.value }))}/></label><label>语言<input value={book.language} onChange={event => updateBook(previous => ({ ...previous, language: event.target.value }))}/></label></section>
+        <section className="setting-section"><h3>图书封面</h3><p className="setting-help">创建工程时可留空，保存后会显示在工程书架，并写入 EPUB。</p>{book.coverImage ? <div className="cover-slot"><img src={book.coverImage} alt="图书封面预览"/><div><button className="button outline" onClick={() => chooseImage('coverImage')}>更换封面</button><button className="button subtle" onClick={() => updateBook(previous => ({ ...previous, coverImage: null }))}>移除</button></div></div> : <button className="image-add" onClick={() => chooseImage('coverImage')}><ImagePlus size={17}/>上传封面</button>}</section>
         <section className="setting-section"><h3>章节标题</h3><label>字体<select value={book.style.titleFontFamily} onChange={event => setStyle('titleFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>字号<input type="number" min="16" max="72" value={book.style.titleFontSize} onChange={event => setStyle('titleFontSize', Number(event.target.value))}/></label><label>对齐<select value={book.style.titleAlign} onChange={event => setStyle('titleAlign', event.target.value)}><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option></select></label></div></section>
         <section className="setting-section"><h3>正文</h3><label>字体<select value={book.style.bodyFontFamily} onChange={event => setStyle('bodyFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>字号<input type="number" min="10" max="48" value={book.style.bodyFontSize} onChange={event => setStyle('bodyFontSize', Number(event.target.value))}/></label><label>行距<input type="number" min="1.2" max="3" step="0.1" value={book.style.bodyLineHeight} onChange={event => setStyle('bodyLineHeight', Number(event.target.value))}/></label></div><label>对齐<select value={book.style.bodyAlign} onChange={event => setStyle('bodyAlign', event.target.value)}><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label></section>
         <section className="setting-section"><h3>每章图片</h3><p className="setting-help">统一应用在每个章节的开头或末尾。</p>{(['openingImage', 'closingImage'] as const).map((target) => <div className="image-slot" key={target}><span>{target === 'openingImage' ? '章节开头' : '章节末尾'}</span>{book[target] ? <div className="image-slot-preview"><img src={book[target]!} alt={target === 'openingImage' ? '章节开头图片' : '章节末尾图片'}/><button title="移除图片" aria-label="移除图片" onClick={() => updateBook(previous => ({ ...previous, [target]: null }))}><X size={16}/></button></div> : <button className="image-add" onClick={() => chooseImage(target)}><ImagePlus size={17}/>选择图片</button>}</div>)}</section>
-      </> : <div className="library-panel"><div className="panel-heading"><div><span className="eyebrow">本机 SQLite 资源库</span><h2>字体与图片</h2></div></div><div className="library-kind" role="group" aria-label="资源类型"><button className={assetKind === 'font' ? 'active' : ''} onClick={() => setAssetKind('font')}>字体</button><button className={assetKind === 'image' ? 'active' : ''} onClick={() => setAssetKind('image')}>图片</button></div><button className="button primary library-import" disabled={busy} onClick={importLibraryAsset}><Plus size={16}/>导入{assetKind === 'font' ? '字体' : '图片'}</button><p className="setting-help">资源保存在本机。应用到书稿后，项目和导出的 EPUB 会保留所用资源。</p><div className="library-list">{previewAsset && <div className="library-preview"><strong>{previewAsset.name}</strong>{previewAsset.kind === 'image' ? <img src={previewAsset.dataUri} alt={previewAsset.name}/> : <span style={{ fontFamily: `'EPUBStudioFont${previewAsset.id}', serif` }}>字体预览：春江花月夜 ABC 123</span>}</div>}{assets.length === 0 && <p className="library-empty">还没有{assetKind === 'font' ? '字体' : '图片'}，点击上方按钮导入。</p>}{assets.map(asset => <div className="library-item" key={asset.id}><div className="library-item-heading"><strong title={asset.name}>{asset.name}</strong><button title={`删除 ${asset.name}`} aria-label={`删除 ${asset.name}`} onClick={() => deleteLibraryAsset(asset)}><Trash2 size={15}/></button></div><small>{asset.mime} · {(asset.size / 1024).toFixed(1)} KB</small><div className="library-actions"><button onClick={() => showAssetPreview(asset)}>预览</button>{assetKind === 'font' ? <><button onClick={() => useFont(asset, 'title')}>标题</button><button onClick={() => useFont(asset, 'body')}>正文</button><button onClick={() => useFont(asset, 'selection')} disabled={view !== 'edit'}>选中文字</button></> : <><button onClick={() => useLibraryImage(asset, 'openingImage')}>每章开头</button><button onClick={() => useLibraryImage(asset, 'closingImage')}>每章末尾</button><button onClick={() => useLibraryImage(asset, 'inline')} disabled={view !== 'edit'}>光标处</button></>}</div></div>)}</div></div>}</div></aside>
+      </> : <div className="library-panel"><div className="panel-heading"><div><span className="eyebrow">本机 SQLite 资源库</span><h2>字体与图片</h2></div></div><div className="library-kind" role="group" aria-label="资源类型"><button className={assetKind === 'font' ? 'active' : ''} onClick={() => setAssetKind('font')}>字体</button><button className={assetKind === 'image' ? 'active' : ''} onClick={() => setAssetKind('image')}>图片</button></div><button className="button primary library-import" disabled={busy} onClick={importLibraryAsset}><Plus size={16}/>导入{assetKind === 'font' ? '字体' : '图片'}</button><p className="setting-help">资源保存在本机。应用到书稿后，项目和导出的 EPUB 会保留所用资源。</p><div className="library-list">{previewAsset && <div className="library-preview"><strong>{previewAsset.name}</strong>{previewAsset.kind === 'image' ? <img src={previewAsset.dataUri} alt={previewAsset.name}/> : <span style={{ fontFamily: `'EPUBStudioFont${previewAsset.id}', serif` }}>字体预览：春江花月夜 ABC 123</span>}</div>}{assets.length === 0 && <p className="library-empty">还没有{assetKind === 'font' ? '字体' : '图片'}，点击上方按钮导入。</p>}{assets.map(asset => <div className="library-item" key={asset.id}><div className="library-item-heading"><strong title={asset.name}>{asset.name}</strong><button title={`删除 ${asset.name}`} aria-label={`删除 ${asset.name}`} onClick={() => deleteLibraryAsset(asset)}><Trash2 size={15}/></button></div><small>{asset.mime} · {(asset.size / 1024).toFixed(1)} KB</small><div className="library-actions"><button onClick={() => showAssetPreview(asset)}>预览</button>{assetKind === 'font' ? <><button onClick={() => useFont(asset, 'title')}>标题</button><button onClick={() => useFont(asset, 'body')}>正文</button><button onClick={() => useFont(asset, 'selection')} disabled={view !== 'edit'}>选中文字</button></> : <><button onClick={() => useLibraryImage(asset, 'coverImage')}>设为封面</button><button onClick={() => useLibraryImage(asset, 'openingImage')}>每章开头</button><button onClick={() => useLibraryImage(asset, 'closingImage')}>每章末尾</button><button onClick={() => useLibraryImage(asset, 'inline')} disabled={view !== 'edit'}>光标处</button></>}</div></div>)}</div></div>}</div></aside>
     </div>
     <footer className="statusbar"><span className={error ? 'status-error' : ''}>{error || notice}</span><span>{busy ? '处理中…' : `${book.chapters.length} 章 · ${view === 'edit' ? '编辑模式' : '预览模式'}`}</span></footer>
   </div>

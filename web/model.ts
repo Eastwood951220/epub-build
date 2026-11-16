@@ -21,6 +21,7 @@ export interface Project {
   author: string
   language: string
   style: BookStyle
+  coverImage: string | null
   openingImage: string | null
   closingImage: string | null
   fontAssets: EmbeddedFont[]
@@ -55,6 +56,7 @@ export function createEmptyProject(): Project {
       titleFontFamily: 'serif', titleFontSize: 30, titleAlign: 'center',
       bodyFontFamily: 'serif', bodyFontSize: 18, bodyLineHeight: 1.8, bodyAlign: 'justify',
     },
+    coverImage: null,
     openingImage: null,
     closingImage: null,
     fontAssets: [],
