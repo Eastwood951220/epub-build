@@ -96,6 +96,7 @@ export default function VolumeSettings({
         <section className="vs-section">
           <h3>卷标题</h3>
           <label className="vs-field">名称<input value={draft.title} onChange={event => setDraft(previous => ({ ...previous, title: event.target.value }))} placeholder="例如：第一卷 少年"/></label>
+          <label className="vs-field">标题排列<select value={draft.titleLayout ?? 'stacked'} onChange={event => setDraft(previous => ({ ...previous, titleLayout: event.target.value as 'inline' | 'stacked' }))}><option value="stacked">分两行</option><option value="inline">同一行</option></select></label>
         </section>
 
         <section className="vs-section">

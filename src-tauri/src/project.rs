@@ -8,6 +8,7 @@ use std::{
     fs,
     io::{Read, Seek, Write},
     path::Path,
+    sync::OnceLock,
 };
 use tempfile::NamedTempFile;
 use time::{OffsetDateTime, macros::format_description};
@@ -24,7 +25,14 @@ pub struct Project {
     pub style: BookStyle,
     #[serde(default)]
     pub cover_image: Option<String>,
+    /// Images placed at the chapter title; each entry scopes itself to chapters or volumes.
+    #[serde(default)]
+    pub chapter_images: Vec<ChapterImage>,
+    /// Legacy single opening image, folded into `chapter_images` when a project loads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opening_image: Option<String>,
+    /// Retired chapter-end image; old projects still carry it and it is dropped on load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closing_image: Option<String>,
     #[serde(default)]
     pub font_assets: Vec<EmbeddedFont>,
@@ -51,6 +59,8 @@ pub struct VolumeStyle {
 pub struct Volume {
     pub id: String,
     pub title: String,
+    #[serde(default)]
+    pub title_layout: TitleLayout,
     /// Empty object means "inherit the book style".
     #[serde(default)]
     pub style: VolumeStyle,
@@ -70,6 +80,7 @@ pub struct EmbeddedFont {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
 #[serde(rename_all = "camelCase")]
 pub struct BookStyle {
     pub title_font_family: String,
@@ -79,8 +90,26 @@ pub struct BookStyle {
     pub body_font_size: u16,
     pub body_line_height: f32,
     pub body_align: String,
-    #[serde(default)]
     pub body_first_line_indent: bool,
+    pub note_font_family: String,
+    pub note_font_size: u16,
+    pub note_color: String,
+    pub note_marker_size: u16,
+    pub note_marker_color: String,
+    pub chapter_number_style: HeadingLineStyle,
+    pub chapter_name_style: HeadingLineStyle,
+    pub volume_number_style: HeadingLineStyle,
+    pub volume_name_style: HeadingLineStyle,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct HeadingLineStyle {
+    pub font_family: Option<String>,
+    pub font_size: Option<u16>,
+    pub color: Option<String>,
+    pub align: Option<String>,
+    pub weight: Option<u16>,
 }
 
 impl Default for BookStyle {
@@ -94,6 +123,15 @@ impl Default for BookStyle {
             body_line_height: 1.8,
             body_align: "justify".into(),
             body_first_line_indent: false,
+            note_font_family: "serif".into(),
+            note_font_size: 14,
+            note_color: "#526963".into(),
+            note_marker_size: 12,
+            note_marker_color: "#0b8578".into(),
+            chapter_number_style: HeadingLineStyle::default(),
+            chapter_name_style: HeadingLineStyle::default(),
+            volume_number_style: HeadingLineStyle::default(),
+            volume_name_style: HeadingLineStyle::default(),
         }
     }
 }
@@ -104,10 +142,103 @@ pub struct EditableChapter {
     pub id: String,
     pub title: String,
     #[serde(default)]
+    pub title_layout: TitleLayout,
+    #[serde(default)]
     pub title_id: Option<String>,
     #[serde(default)]
     pub volume_id: Option<String>,
     pub html: String,
+    #[serde(default)]
+    pub notes: Vec<ChapterNote>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ChapterNote {
+    pub id: String,
+    pub text: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TitleLayout {
+    Inline,
+    #[default]
+    Stacked,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChapterImagePlacement {
+    Above,
+    #[default]
+    Below,
+}
+
+/// Which chapters a chapter image applies to.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ChapterImageScope {
+    /// Every chapter, the default for a newly added image.
+    #[default]
+    All,
+    Chapters {
+        ids: Vec<String>,
+    },
+    Volumes {
+        ids: Vec<String>,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterImage {
+    pub id: String,
+    pub image: String,
+    #[serde(default)]
+    pub placement: ChapterImagePlacement,
+    #[serde(default)]
+    pub scope: ChapterImageScope,
+}
+
+impl Project {
+    /// Folds the retired single-image fields into `chapter_images` so old
+    /// projects open and export with the list-based setting.
+    pub fn migrate_chapter_images(&mut self) {
+        if let Some(image) = self.opening_image.take()
+            && self.chapter_images.is_empty()
+        {
+            self.chapter_images.push(ChapterImage {
+                id: "legacy-opening".into(),
+                image,
+                placement: ChapterImagePlacement::Below,
+                scope: ChapterImageScope::All,
+            });
+        }
+        // The per-chapter ending image was removed; old projects drop it on load.
+        self.closing_image = None;
+    }
+}
+
+fn chapter_image_applies(chapter: &EditableChapter, entry: &ChapterImage) -> bool {
+    match &entry.scope {
+        ChapterImageScope::All => true,
+        ChapterImageScope::Chapters { ids } => ids.iter().any(|id| id == &chapter.id),
+        ChapterImageScope::Volumes { ids } => chapter
+            .volume_id
+            .as_deref()
+            .is_some_and(|volume_id| ids.iter().any(|id| id == volume_id)),
+    }
+}
+
+fn chapter_image_figure(entry: &ChapterImage, assets: &mut Vec<ImageAsset>) -> Result<String, String> {
+    let name = add_image(&entry.image, assets)?;
+    let (position, alt) = match entry.placement {
+        ChapterImagePlacement::Above => ("above", "章节标题上方图片"),
+        ChapterImagePlacement::Below => ("below", "章节标题下方图片"),
+    };
+    Ok(format!(
+        "<figure class=\"chapter-image chapter-image-{position}\"><img src=\"../images/{name}\" alt=\"{alt}\" /></figure>"
+    ))
 }
 
 pub fn import_book(path: &Path) -> Result<Project, String> {
@@ -164,6 +295,7 @@ pub fn import_txt_with_patterns(
                 volumes.push(Volume {
                     id: id.clone(),
                     title: chapter.title.clone(),
+                    title_layout: TitleLayout::Stacked,
                     style: VolumeStyle::default(),
                     opening_image: None,
                     closing_image: None,
@@ -174,18 +306,22 @@ pub fn import_txt_with_patterns(
                     chapters.push(EditableChapter {
                         id: format!("chapter-{}", chapters.len() + 1),
                         title: chapter.title,
+                        title_layout: TitleLayout::Stacked,
                         title_id: None,
                         volume_id: Some(id),
                         html: paragraphs_html(&chapter.paragraphs),
+                        notes: Vec::new(),
                     });
                 }
             }
             ChapterKind::Chapter => chapters.push(EditableChapter {
                 id: format!("chapter-{}", chapters.len() + 1),
                 title: chapter.title,
+                title_layout: TitleLayout::Stacked,
                 title_id: None,
                 volume_id: current_volume.clone(),
                 html: paragraphs_html(&chapter.paragraphs),
+                notes: Vec::new(),
             }),
         }
     }
@@ -203,6 +339,7 @@ pub fn import_txt_with_patterns(
         language: "zh-CN".into(),
         style: BookStyle::default(),
         cover_image: None,
+        chapter_images: Vec::new(),
         opening_image: None,
         closing_image: None,
         font_assets: Vec::new(),
@@ -227,8 +364,9 @@ pub fn save_project(book: &Project, path: &Path) -> Result<(), String> {
 
 pub fn load_project(path: &Path) -> Result<Project, String> {
     let data = fs::read(path).map_err(|e| format!("打开项目失败：{e}"))?;
-    let book: Project =
+    let mut book: Project =
         serde_json::from_slice(&data).map_err(|e| format!("项目文件格式错误：{e}"))?;
+    book.migrate_chapter_images();
     validate_project(&book)?;
     Ok(book)
 }
@@ -416,6 +554,72 @@ fn css_align(value: &str) -> &'static str {
     }
 }
 
+fn safe_css_color<'a>(value: &'a str, fallback: &'a str) -> &'a str {
+    if value.starts_with('#')
+        && (value.len() == 7 || value.len() == 4)
+        && value[1..].chars().all(|c| c.is_ascii_hexdigit())
+    {
+        value
+    } else {
+        fallback
+    }
+}
+
+fn heading_line_css(selector: &str, line: &HeadingLineStyle, style: &BookStyle, fonts: &[EmbeddedFont], number: bool) -> String {
+    let fallback_color = if number { "#587670" } else { "#183e37" };
+    format!(
+        "{selector}{{font-family:{};font-size:{}px;color:{};text-align:{};font-weight:{}}}",
+        css_font(line.font_family.as_deref().unwrap_or(&style.title_font_family), fonts),
+        line.font_size.unwrap_or(if number { ((style.title_font_size as f32) * 0.65).round() as u16 } else { style.title_font_size }).clamp(12, 72),
+        safe_css_color(line.color.as_deref().unwrap_or(fallback_color), fallback_color),
+        css_align(line.align.as_deref().unwrap_or(&style.title_align)),
+        line.weight.unwrap_or(if number { 650 } else { 700 }).clamp(100, 900),
+    )
+}
+
+fn heading_styles(style: &BookStyle, fonts: &[EmbeddedFont], prefix: &str) -> String {
+    let mut css = String::new();
+    for (kind, part, line, number) in [
+        ("chapter", "number", &style.chapter_number_style, true),
+        ("chapter", "name", &style.chapter_name_style, false),
+        ("volume", "number", &style.volume_number_style, true),
+        ("volume", "name", &style.volume_name_style, false),
+    ] {
+        css.push_str(&heading_line_css(&format!("{prefix}.{kind}-heading .heading-{part}"), line, style, fonts, number));
+    }
+    for (kind, line) in [("chapter", &style.chapter_name_style), ("volume", &style.volume_name_style)] {
+        css.push_str(&format!("{prefix}.{kind}-heading.title-inline{{text-align:{}}}", css_align(line.align.as_deref().unwrap_or(&style.title_align))));
+    }
+    css
+}
+
+fn split_heading(title: &str, volume: bool) -> (String, String) {
+    static CHAPTER: OnceLock<Regex> = OnceLock::new();
+    static VOLUME: OnceLock<Regex> = OnceLock::new();
+    let pattern = if volume {
+        VOLUME.get_or_init(|| Regex::new(r"^(第[0-9０-９零〇一二三四五六七八九十百千万两]+[卷部篇]|卷[0-9０-９零〇一二三四五六七八九十百千万两]+)(.*)$").unwrap())
+    } else {
+        CHAPTER.get_or_init(|| Regex::new(r"^(第[0-9０-９零〇一二三四五六七八九十百千万两]+[章节回话])(.*)$").unwrap())
+    };
+    let text = title.trim();
+    if let Some(captures) = pattern.captures(text) {
+        let name = captures[2].trim_start_matches(|c: char| c.is_whitespace() || ":：、.．·—-".contains(c)).trim();
+        (captures[1].to_string(), name.to_string())
+    } else { (String::new(), text.to_string()) }
+}
+
+fn heading_html(title: &str, volume: bool, id: Option<&str>, layout: TitleLayout) -> String {
+    let kind = if volume { "volume" } else { "chapter" };
+    let layout_class = if layout == TitleLayout::Inline { "title-inline" } else { "title-stacked" };
+    let id = id.map(|value| format!(" id=\"{}\"", escape_xml(value))).unwrap_or_default();
+    let (number, name) = split_heading(title, volume);
+    let mut html = format!("<h1 class=\"{kind}-heading {layout_class}\"{id}>");
+    if !number.is_empty() { html.push_str(&format!("<span class=\"heading-number\">{}</span>", escape_xml(&number))); }
+    if !name.is_empty() { html.push_str(&format!("<span class=\"heading-name\">{}</span>", escape_xml(&name))); }
+    html.push_str("</h1>");
+    html
+}
+
 fn style_css(style: &BookStyle, fonts: &[EmbeddedFont]) -> String {
     let mut faces = String::new();
     for (index, font) in fonts.iter().enumerate() {
@@ -430,7 +634,7 @@ fn style_css(style: &BookStyle, fonts: &[EmbeddedFont]) -> String {
             ));
         }
     }
-    format!(
+    let mut css = format!(
         "{faces}body{{font-family:{};font-size:{}px;line-height:{:.2};text-align:{};margin:0 auto;max-width:42em;padding:1.5em;color:#20302e}}h1{{font-family:{};font-size:{}px;text-align:{};line-height:1.35;margin:1.2em 0}}p{{margin:0 0 .9em{}}}img{{max-width:100%;height:auto}}.chapter-image{{text-align:center;margin:1.5em 0}}",
         css_font(&style.body_font_family, fonts),
         style.body_font_size.clamp(10, 48),
@@ -440,11 +644,52 @@ fn style_css(style: &BookStyle, fonts: &[EmbeddedFont]) -> String {
         style.title_font_size.clamp(16, 72),
         css_align(&style.title_align),
         if style.body_first_line_indent { ";text-indent:2em" } else { "" }
-    )
+    );
+    css.push_str(&format!(
+        ".note-marker{{font-size:{}px;color:{};vertical-align:super;line-height:0;text-decoration:none}}.chapter-notes{{font-family:{};font-size:{}px;color:{};text-align:left;line-height:1.6;border-top:1px solid #dce7e4;margin-top:2em;padding-top:1em}}.chapter-notes h2{{font:inherit;font-weight:bold;margin:0 0 .7em}}.chapter-notes p{{margin:0 0 .6em;text-indent:0}}",
+        style.note_marker_size.clamp(8, 32),
+        safe_css_color(&style.note_marker_color, "#0b8578"),
+        css_font(&style.note_font_family, fonts),
+        style.note_font_size.clamp(10, 32),
+        safe_css_color(&style.note_color, "#526963"),
+    ));
+    css.push_str(".chapter-heading .heading-number,.chapter-heading .heading-name,.volume-heading .heading-number,.volume-heading .heading-name{display:block}.chapter-heading .heading-number+.heading-name,.volume-heading .heading-number+.heading-name{margin-top:.35em}");
+    css.push_str(".chapter-heading.title-inline .heading-number,.chapter-heading.title-inline .heading-name,.volume-heading.title-inline .heading-number,.volume-heading.title-inline .heading-name{display:inline}.chapter-heading.title-inline .heading-number+.heading-name,.volume-heading.title-inline .heading-number+.heading-name{margin-top:0;margin-left:.35em}");
+    css.push_str(&heading_styles(style, fonts, ""));
+    css
+}
+
+fn render_chapter_notes(html: &str, notes: &[ChapterNote]) -> (String, String) {
+    let marker = Regex::new(r#"(?s)<span\b[^>]*\bdata-note-id="([^"]+)"[^>]*>.*?</span>"#).unwrap();
+    let by_id: HashMap<&str, &ChapterNote> =
+        notes.iter().map(|note| (note.id.as_str(), note)).collect();
+    let mut ordered: Vec<&ChapterNote> = Vec::new();
+    let body = marker.replace_all(html, |captures: &regex::Captures<'_>| {
+        let id = &captures[1];
+        let Some(note) = by_id.get(id) else { return String::new() };
+        let number = if let Some(index) = ordered.iter().position(|item| item.id == note.id) { index + 1 } else { ordered.push(note); ordered.len() };
+        format!("<a class=\"note-marker\" id=\"note-ref-{}\" href=\"#note-{}\" epub:type=\"noteref\">[{}]</a>", escape_xml(id), escape_xml(id), number)
+    }).into_owned();
+    if ordered.is_empty() {
+        return (body, String::new());
+    }
+    let mut end =
+        String::from("<section class=\"chapter-notes\" epub:type=\"endnotes\"><h2>备注</h2>");
+    for (index, note) in ordered.iter().enumerate() {
+        end.push_str(&format!(
+            "<p id=\"note-{}\" epub:type=\"endnote\"><a href=\"#note-ref-{}\">[{}]</a> {}</p>",
+            escape_xml(&note.id),
+            escape_xml(&note.id),
+            index + 1,
+            escape_xml(&note.text)
+        ));
+    }
+    end.push_str("</section>");
+    (body, end)
 }
 
 fn resolve_style(base: &BookStyle, overrides: &VolumeStyle) -> BookStyle {
-    BookStyle {
+    let mut resolved = BookStyle {
         title_font_family: overrides
             .title_font_family
             .clone()
@@ -465,7 +710,27 @@ fn resolve_style(base: &BookStyle, overrides: &VolumeStyle) -> BookStyle {
             .clone()
             .unwrap_or_else(|| base.body_align.clone()),
         body_first_line_indent: base.body_first_line_indent,
+        note_font_family: base.note_font_family.clone(),
+        note_font_size: base.note_font_size,
+        note_color: base.note_color.clone(),
+        note_marker_size: base.note_marker_size,
+        note_marker_color: base.note_marker_color.clone(),
+        chapter_number_style: base.chapter_number_style.clone(),
+        chapter_name_style: base.chapter_name_style.clone(),
+        volume_number_style: base.volume_number_style.clone(),
+        volume_name_style: base.volume_name_style.clone(),
+    };
+    for line in [
+        &mut resolved.chapter_number_style,
+        &mut resolved.chapter_name_style,
+        &mut resolved.volume_number_style,
+        &mut resolved.volume_name_style,
+    ] {
+        if let Some(font) = &overrides.title_font_family { line.font_family = Some(font.clone()); }
+        if let Some(size) = overrides.title_font_size { line.font_size = Some(size); }
+        if let Some(align) = &overrides.title_align { line.align = Some(align.clone()); }
     }
+    resolved
 }
 
 /// Per-volume typography overrides, applied to a volume page and its chapters.
@@ -484,6 +749,7 @@ fn volume_css(book: &Project) -> String {
             style.title_font_size.clamp(16, 72),
             css_align(&style.title_align)
         ));
+        css.push_str(&heading_styles(&style, &book.font_assets, &format!("body.volume-{n} ")));
     }
     css
 }
@@ -561,7 +827,7 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
                     "<item id=\"volume-{vn}\" href=\"{volume_href}\" media-type=\"application/xhtml+xml\"/>"
                 ));
                 spine.push_str(&format!("<itemref idref=\"volume-{vn}\"/>"));
-                let mut body = format!("<h1>{}</h1>", escape_xml(&volume.title));
+                let mut body = heading_html(&volume.title, true, None, volume.title_layout);
                 if let Some(image) = &volume.opening_image {
                     let name = add_image(image, &mut assets)?;
                     body.push_str(&format!("<figure class=\"chapter-image\"><img src=\"../images/{name}\" alt=\"卷首图片\" /></figure>"));
@@ -593,21 +859,29 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
             "<li><a href=\"{href}\">{}</a></li>",
             escape_xml(&chapter.title)
         ));
-        let title_id = chapter
-            .title_id
-            .as_ref()
-            .map(|id| format!(" id=\"{}\"", escape_xml(id)))
-            .unwrap_or_default();
-        let mut body = format!("<h1{title_id}>{}</h1>", escape_xml(&chapter.title));
-        if let Some(image) = &book.opening_image {
-            let name = add_image(image, &mut assets)?;
-            body.push_str(&format!("<figure class=\"chapter-image\"><img src=\"../images/{name}\" alt=\"章节开头图片\" /></figure>"));
+        let images: Vec<&ChapterImage> = book
+            .chapter_images
+            .iter()
+            .filter(|entry| chapter_image_applies(chapter, entry))
+            .collect();
+        let mut body = String::new();
+        for entry in images
+            .iter()
+            .copied()
+            .filter(|entry| entry.placement == ChapterImagePlacement::Above)
+        {
+            body.push_str(&chapter_image_figure(entry, &mut assets)?);
         }
-        body.push_str(&embed_inline_images(&chapter.html, &mut assets)?);
-        if let Some(image) = &book.closing_image {
-            let name = add_image(image, &mut assets)?;
-            body.push_str(&format!("<figure class=\"chapter-image\"><img src=\"../images/{name}\" alt=\"章节末尾图片\" /></figure>"));
+        body.push_str(&heading_html(&chapter.title, false, chapter.title_id.as_deref(), chapter.title_layout));
+        for entry in images
+            .iter()
+            .copied()
+            .filter(|entry| entry.placement == ChapterImagePlacement::Below)
+        {
+            body.push_str(&chapter_image_figure(entry, &mut assets)?);
         }
+        let (chapter_html, notes_html) = render_chapter_notes(&chapter.html, &chapter.notes);
+        body.push_str(&embed_inline_images(&chapter_html, &mut assets)?);
         // A volume's closing image belongs after the last chapter of that volume.
         if let Some(vi) = volume_index {
             let next_volume = book
@@ -621,6 +895,7 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
                 body.push_str(&format!("<figure class=\"chapter-image\"><img src=\"../images/{name}\" alt=\"卷尾图片\" /></figure>"));
             }
         }
+        body.push_str(&notes_html);
         let document = xhtml(
             &chapter.title,
             &body,
@@ -827,6 +1102,27 @@ fn import_epub(path: &Path) -> Result<Project, String> {
             .descendants()
             .find(|n| n.has_tag_name("body"))
             .ok_or("章节缺少正文")?;
+        let mut chapter_notes: Vec<ChapterNote> = body
+            .descendants()
+            .filter(|node| {
+                node.has_tag_name("section")
+                    && node.attribute("class").is_some_and(|classes| {
+                        classes.split_whitespace().any(|class| class == "chapter-notes")
+                    })
+            })
+            .flat_map(|section| section.children().filter(|node| node.has_tag_name("p")))
+            .filter_map(|paragraph| {
+                let id = paragraph.attribute("id")?.strip_prefix("note-")?.to_string();
+                let text = paragraph
+                    .children()
+                    .filter(|child| !child.has_tag_name("a"))
+                    .map(node_text)
+                    .collect::<String>()
+                    .trim()
+                    .to_string();
+                Some(ChapterNote { id, text })
+            })
+            .collect();
         let mut blocks = Vec::new();
         for child in body.children() {
             flatten_blocks(child, &mut blocks);
@@ -837,6 +1133,7 @@ fn import_epub(path: &Path) -> Result<Project, String> {
             "h2"
         };
         let mut title = format!("章节 {}", drafts.len() + 1);
+        let mut title_layout = TitleLayout::Stacked;
         let mut title_id = None;
         let mut html = String::new();
         let mut anchors = Vec::new();
@@ -846,13 +1143,16 @@ fn import_epub(path: &Path) -> Result<Project, String> {
                 if started {
                     drafts.push(ImportedChapter {
                         title: std::mem::take(&mut title),
+                        title_layout,
                         title_id: title_id.take(),
                         html: std::mem::take(&mut html),
+                        notes: Vec::new(),
                         anchors: std::mem::take(&mut anchors),
                         source_path: chapter_path.clone(),
                     });
                 }
-                title = node_text(block).trim().to_string();
+                title = imported_heading_text(block);
+                title_layout = if block.attribute("class").is_some_and(|classes| classes.split_whitespace().any(|class| class == "title-inline")) { TitleLayout::Inline } else { TitleLayout::Stacked };
                 if title.is_empty() {
                     title = format!("章节 {}", drafts.len() + 1);
                 }
@@ -880,8 +1180,10 @@ fn import_epub(path: &Path) -> Result<Project, String> {
         if started {
             drafts.push(ImportedChapter {
                 title,
+                title_layout,
                 title_id,
                 html,
+                notes: std::mem::take(&mut chapter_notes),
                 anchors,
                 source_path: chapter_path,
             });
@@ -914,9 +1216,11 @@ fn import_epub(path: &Path) -> Result<Project, String> {
             EditableChapter {
                 id: format!("chapter-{}", index + 1),
                 title: draft.title,
+                title_layout: draft.title_layout,
                 title_id: draft.title_id,
                 volume_id: None,
                 html: draft.html,
+                notes: draft.notes,
             }
         })
         .collect();
@@ -927,6 +1231,7 @@ fn import_epub(path: &Path) -> Result<Project, String> {
         language,
         style: BookStyle::default(),
         cover_image,
+        chapter_images: Vec::new(),
         opening_image: None,
         closing_image: None,
         font_assets: Vec::new(),
@@ -948,13 +1253,22 @@ fn image_mime(path: &str) -> Option<&'static str> {
 
 struct ImportedChapter {
     title: String,
+    title_layout: TitleLayout,
     title_id: Option<String>,
     html: String,
+    notes: Vec<ChapterNote>,
     anchors: Vec<String>,
     source_path: String,
 }
 
 fn flatten_blocks<'a, 'input>(node: Node<'a, 'input>, output: &mut Vec<Node<'a, 'input>>) {
+    if node.has_tag_name("section")
+        && node.attribute("class").is_some_and(|classes| {
+            classes.split_whitespace().any(|class| class == "chapter-notes")
+        })
+    {
+        return;
+    }
     if node.is_element() && matches!(node.tag_name().name(), "section" | "article" | "div") {
         for child in node.children() {
             flatten_blocks(child, output);
@@ -1061,6 +1375,18 @@ fn node_text(node: Node<'_, '_>) -> String {
         .collect()
 }
 
+fn imported_heading_text(node: Node<'_, '_>) -> String {
+    let part = |class: &str| {
+        node.children()
+            .find(|child| child.has_tag_name("span") && child.attribute("class").is_some_and(|classes| classes.split_whitespace().any(|item| item == class)))
+            .map(node_text)
+    };
+    match (part("heading-number"), part("heading-name")) {
+        (Some(number), Some(name)) => format!("{} {}", number.trim(), name.trim()),
+        _ => node_text(node).trim().to_string(),
+    }
+}
+
 fn import_node(
     node: Node<'_, '_>,
     chapter_path: &str,
@@ -1123,6 +1449,10 @@ fn import_node(
     };
     if tag == "a" {
         let href = node.attribute("href").unwrap_or("");
+        if node.attribute(("http://www.idpf.org/2007/ops", "type")) == Some("noteref")
+            && let Some(id) = href.strip_prefix("#note-") {
+            return format!("<span data-note-id=\"{}\">{children}</span>", escape_xml(id));
+        }
         if href.to_ascii_lowercase().starts_with("javascript:") || href.starts_with("//") {
             return children;
         }

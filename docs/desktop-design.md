@@ -18,6 +18,6 @@ Tauri 2 hosts a React/TypeScript editor. Rust owns filesystem access, TXT/EPUB i
 - Volumes are a grouping above chapters. Each volume owns a title, opening/closing images, and typography overrides of the book style; export writes a volume title page, nested navigation, and `volume-N` classes on its chapters.
 - EPUB import preserves common text blocks, inline formatting, and embedded images. Unsupported scripts and arbitrary EPUB CSS are discarded for safe editing.
 - The global style controls title/body font family, size, line height, and alignment. Selection formatting in Tiptap overrides it locally.
-- Opening/ending images are configured once and applied to each chapter; an editor toolbar inserts chapter-specific images at the cursor.
+- Chapter images form a list: each entry defaults to every chapter, can be narrowed to selected chapters or volumes, and sits above or below the chapter title. Projects saved with the older single opening/ending images migrate to that list on load; an editor toolbar still inserts free images at the cursor.
 - Source paths are chosen with native dialogs. The UI warns about unsaved changes before replacing a project.
 - Windows and macOS builds use the same source and a CI matrix; macOS is built locally, Windows build is verified in CI when available.

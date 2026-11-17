@@ -1,9 +1,96 @@
 use epub_studio::project::{
-    export_epub, import_book, import_txt_with_patterns, load_project, save_project,
+    ChapterImage, ChapterImagePlacement, ChapterImageScope, export_epub, import_book,
+    import_txt_with_patterns, load_project, save_project,
 };
 use std::{fs, io::Read};
 use tempfile::tempdir;
 use zip::{CompressionMethod, ZipArchive};
+
+#[test]
+fn chapter_notes_export_at_chapter_end_with_links_and_styles() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(&input, "第一章\n正文").unwrap();
+    let mut project = import_book(&input).unwrap();
+    project.chapters[0].html = "<p>正文<span data-note-id=\"n1\">[1]</span></p>".into();
+    project.chapters[0]
+        .notes
+        .push(epub_studio::project::ChapterNote {
+            id: "n1".into(),
+            text: "备注<&>".into(),
+        });
+    project.style.note_font_size = 14;
+    project.style.note_marker_color = "#aabbcc".into();
+    let saved = dir.path().join("book.json");
+    save_project(&project, &saved).unwrap();
+    let project = load_project(&saved).unwrap();
+    assert_eq!(project.chapters[0].notes[0].text, "备注<&>");
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(&epub).unwrap()).unwrap();
+    let mut chapter = String::new();
+    archive
+        .by_name("OEBPS/text/chapter-1.xhtml")
+        .unwrap()
+        .read_to_string(&mut chapter)
+        .unwrap();
+    assert!(chapter.contains("href=\"#note-n1\""));
+    assert!(chapter.contains("id=\"note-n1\""));
+    assert!(chapter.contains("备注&lt;&amp;&gt;"));
+    assert!(chapter.find("正文").unwrap() < chapter.find("备注&lt;&amp;&gt;").unwrap());
+    let mut css = String::new();
+    archive
+        .by_name("OEBPS/styles/book.css")
+        .unwrap()
+        .read_to_string(&mut css)
+        .unwrap();
+    assert!(css.contains("font-size:14px;color:#526963"));
+    assert!(css.contains("color:#aabbcc"));
+    let imported = import_book(&epub).unwrap();
+    assert_eq!(imported.chapters[0].notes[0].text, "备注<&>");
+    assert!(imported.chapters[0].html.contains("data-note-id=\"n1\""));
+}
+
+#[test]
+fn chapter_and_volume_titles_export_as_separately_styled_lines() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(&input, "第一卷：少年\n第一章 开始\n正文\n\n第二章 继续\n正文").unwrap();
+    let mut project = import_book(&input).unwrap();
+    project.style.chapter_number_style.font_size = Some(18);
+    project.style.chapter_number_style.color = Some("#aa3344".into());
+    project.style.volume_name_style.font_size = Some(38);
+    project.chapters[0].title_layout = epub_studio::project::TitleLayout::Inline;
+    project.volumes[0].title_layout = epub_studio::project::TitleLayout::Stacked;
+    let saved = dir.path().join("book.json");
+    save_project(&project, &saved).unwrap();
+    let project = load_project(&saved).unwrap();
+    assert_eq!(project.chapters[0].title_layout, epub_studio::project::TitleLayout::Inline);
+    assert_eq!(project.volumes[0].title_layout, epub_studio::project::TitleLayout::Stacked);
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(&epub).unwrap()).unwrap();
+    let mut chapter = String::new();
+    archive.by_name("OEBPS/text/chapter-1.xhtml").unwrap().read_to_string(&mut chapter).unwrap();
+    assert!(chapter.contains("class=\"chapter-heading title-inline\""));
+    assert!(chapter.contains("<span class=\"heading-number\">第一章</span><span class=\"heading-name\">开始</span>"));
+    let mut next_chapter = String::new();
+    archive.by_name("OEBPS/text/chapter-2.xhtml").unwrap().read_to_string(&mut next_chapter).unwrap();
+    assert!(next_chapter.contains("class=\"chapter-heading title-stacked\""));
+    let mut volume = String::new();
+    archive.by_name("OEBPS/text/volume-1.xhtml").unwrap().read_to_string(&mut volume).unwrap();
+    assert!(volume.contains("class=\"volume-heading title-stacked\""));
+    assert!(volume.contains("<span class=\"heading-number\">第一卷</span><span class=\"heading-name\">少年</span>"));
+    let mut css = String::new();
+    archive.by_name("OEBPS/styles/book.css").unwrap().read_to_string(&mut css).unwrap();
+    assert!(css.contains(".chapter-heading .heading-number"));
+    assert!(css.contains("font-size:18px;color:#aa3344"));
+    assert!(css.contains(".volume-heading .heading-name"));
+    assert!(css.contains("font-size:38px"));
+    let imported = import_book(&epub).unwrap();
+    assert!(imported.chapters.iter().any(|chapter| chapter.title == "第一章 开始"));
+    assert!(imported.chapters.iter().any(|chapter| chapter.title == "第一章 开始" && chapter.title_layout == epub_studio::project::TitleLayout::Inline));
+}
 
 #[test]
 fn selected_font_is_saved_and_embedded_in_epub() {
@@ -110,7 +197,12 @@ fn project_save_load_and_epub_export_round_trip() {
     let mut project = import_book(&input).unwrap();
     project.author = "作者".into();
     project.style.body_font_size = 20;
-    project.opening_image = Some("data:image/png;base64,iVBORw0KGgo=".into());
+    project.chapter_images.push(ChapterImage {
+        id: "image-1".into(),
+        image: "data:image/png;base64,iVBORw0KGgo=".into(),
+        placement: ChapterImagePlacement::Below,
+        scope: ChapterImageScope::All,
+    });
     project.cover_image = Some("data:image/png;base64,iVBORw0KGgo=".into());
     project.chapters[0]
         .html
@@ -195,7 +287,12 @@ fn failed_export_keeps_existing_epub() {
     let input = dir.path().join("book.txt");
     fs::write(&input, "第一章 开始\n正文").unwrap();
     let mut project = import_book(&input).unwrap();
-    project.opening_image = Some("data:image/png;base64,not-valid-!".into());
+    project.chapter_images.push(ChapterImage {
+        id: "broken".into(),
+        image: "data:image/png;base64,not-valid-!".into(),
+        placement: ChapterImagePlacement::Above,
+        scope: ChapterImageScope::All,
+    });
     let output = dir.path().join("existing.epub");
     fs::write(&output, b"previous good book").unwrap();
     assert!(export_epub(&project, &output).is_err());
@@ -235,7 +332,7 @@ fn epub_import_splits_headings_and_keeps_internal_links() {
         .unwrap()
         .read_to_string(&mut chapter)
         .unwrap();
-    assert!(chapter.contains("<h1 id=\"two\">Two</h1>"));
+    assert!(chapter.contains("<h1 class=\"chapter-heading title-stacked\" id=\"two\"><span class=\"heading-name\">Two</span></h1>"));
 }
 
 #[test]
@@ -327,4 +424,105 @@ fn volumes_get_their_own_pages_styles_and_images() {
     assert!(nav.contains("text/volume-1.xhtml"));
     assert!(nav.contains("<ol>"));
     roxmltree::Document::parse(&nav).unwrap();
+}
+
+#[test]
+fn chapter_images_follow_placement_and_scope() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(
+        &input,
+        "第一卷 少年\n第一章 开始\n正文一。\n第二章 继续\n正文二。\n第二卷 远方\n第三章 远行\n正文三。",
+    )
+    .unwrap();
+    let mut project = import_book(&input).unwrap();
+    assert_eq!(project.volumes.len(), 2);
+    project.chapter_images.push(ChapterImage {
+        id: "above-all".into(),
+        image: "data:image/png;base64,iVBORw0KGgo=".into(),
+        placement: ChapterImagePlacement::Above,
+        scope: ChapterImageScope::All,
+    });
+    let first_volume = project.volumes[0].id.clone();
+    project.chapter_images.push(ChapterImage {
+        id: "below-volume-1".into(),
+        image: "data:image/png;base64,iVBORw0KGgo=".into(),
+        placement: ChapterImagePlacement::Below,
+        scope: ChapterImageScope::Volumes { ids: vec![first_volume] },
+    });
+    let second_chapter = project.chapters[1].id.clone();
+    project.chapter_images.push(ChapterImage {
+        id: "above-chapter-2".into(),
+        image: "data:image/png;base64,iVBORw0KGgo=".into(),
+        placement: ChapterImagePlacement::Above,
+        scope: ChapterImageScope::Chapters { ids: vec![second_chapter] },
+    });
+
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(&epub).unwrap()).unwrap();
+
+    let mut chapter = String::new();
+    archive
+        .by_name("OEBPS/text/chapter-1.xhtml")
+        .unwrap()
+        .read_to_string(&mut chapter)
+        .unwrap();
+    let heading = chapter.find("<h1").unwrap();
+    let above = chapter.find("章节标题上方图片").unwrap();
+    let below = chapter.find("章节标题下方图片").unwrap();
+    assert!(above < heading, "above-title image must precede the heading");
+    assert!(heading < below, "below-title image must follow the heading");
+    assert!(!chapter.contains("卷尾图片"));
+
+    let mut chapter_two = String::new();
+    archive
+        .by_name("OEBPS/text/chapter-2.xhtml")
+        .unwrap()
+        .read_to_string(&mut chapter_two)
+        .unwrap();
+    // Chapter 2 sits in volume 1, so both the volume-scoped and the chapter-scoped images apply.
+    assert!(chapter_two.find("章节标题上方图片").unwrap() < chapter_two.find("<h1").unwrap());
+    assert!(chapter_two.find("<h1").unwrap() < chapter_two.find("章节标题下方图片").unwrap());
+
+    let mut chapter_three = String::new();
+    archive
+        .by_name("OEBPS/text/chapter-3.xhtml")
+        .unwrap()
+        .read_to_string(&mut chapter_three)
+        .unwrap();
+    assert!(chapter_three.contains("章节标题上方图片"));
+    assert!(!chapter_three.contains("章节标题下方图片"));
+}
+
+#[test]
+fn legacy_opening_image_migrates_into_chapter_images() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("old.epubstudio.json");
+    fs::write(
+        &path,
+        r#"{"version":1,"title":"旧书","author":"作者","language":"zh-CN","style":{},"coverImage":null,"openingImage":"data:image/png;base64,iVBORw0KGgo=","closingImage":"data:image/png;base64,iVBORw0KGgo=","fontAssets":[],"volumes":[],"chapters":[{"id":"chapter-1","title":"第一章 开始","html":"<p>正文</p>"}]}"#,
+    )
+    .unwrap();
+    let project = load_project(&path).unwrap();
+    assert_eq!(project.chapter_images.len(), 1);
+    assert_eq!(project.chapter_images[0].placement, ChapterImagePlacement::Below);
+    assert_eq!(project.chapter_images[0].scope, ChapterImageScope::All);
+    assert_eq!(
+        project.chapter_images[0].image,
+        "data:image/png;base64,iVBORw0KGgo="
+    );
+    assert!(project.opening_image.is_none());
+    assert!(project.closing_image.is_none());
+
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(&epub).unwrap()).unwrap();
+    let mut chapter = String::new();
+    archive
+        .by_name("OEBPS/text/chapter-1.xhtml")
+        .unwrap()
+        .read_to_string(&mut chapter)
+        .unwrap();
+    assert!(chapter.contains("章节标题下方图片"));
 }

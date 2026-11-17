@@ -98,8 +98,9 @@ impl WorkspaceStore {
             .optional()
             .map_err(|e| e.to_string())?
             .ok_or("工程不存在")?;
-        let book: Project =
+        let mut book: Project =
             serde_json::from_str(&json).map_err(|e| format!("工程数据无效：{e}"))?;
+        book.migrate_chapter_images();
         validate_project(&book)?;
         Ok(book)
     }

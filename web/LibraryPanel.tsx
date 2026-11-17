@@ -5,7 +5,7 @@ export interface AssetSummary { id: number; kind: AssetKind; name: string; mime:
 export interface AssetData { id: number; kind: AssetKind; name: string; mime: string; dataUri: string }
 
 type FontTarget = 'title' | 'body' | 'selection'
-type ImageTarget = 'coverImage' | 'openingImage' | 'closingImage' | 'inline'
+type ImageTarget = 'coverImage' | 'chapterImage' | 'inline'
 
 export interface LibraryPanelProps {
   kind: AssetKind
@@ -49,8 +49,7 @@ export default function LibraryPanel({
   ]
   const imageActions: { label: string; title: string; target: ImageTarget; disabled?: boolean; wide?: boolean }[] = [
     { label: '设为封面', title: '设为图书封面', target: 'coverImage' },
-    { label: '每章开头', title: '应用到每章开头', target: 'openingImage' },
-    { label: '每章末尾', title: '应用到每章末尾', target: 'closingImage' },
+    { label: '章节图片', title: '添加为章节标题下方图片（默认全部章节）', target: 'chapterImage' },
     { label: '光标处', title: '插入到光标处', target: 'inline', disabled: !editing, wide: true },
   ]
 

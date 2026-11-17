@@ -5,26 +5,33 @@ import Image from '@tiptap/extension-image'
 import TextAlign from '@tiptap/extension-text-align'
 import { TextStyleKit } from '@tiptap/extension-text-style'
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import DOMPurify from 'dompurify'
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, BookOpen, ChevronDown,
   ChevronRight, ChevronUp, Download, FolderOpen, ImagePlus, Italic, List,
   ListOrdered, ListTree, Layers, Settings2, Plus, Redo2, Save, Trash2, Undo2, X,
-  LibraryBig, House, Search,
+  LibraryBig, House, Search, MessageSquareText, Minus, Maximize2,
 } from 'lucide-react'
 import {
-  chapterGroups, chapterStyle, chapterVolume, createEmptyProject, createVolume, fontChoices,
+  chapterGroups, chapterImagesAt, chapterStyle, chapterVolume, createChapterImage, createEmptyProject, createVolume, fontChoices,
   previewStyles, reindexChapterLinks, resolveStyle, type BookStyle, type EditableChapter, type Project, type Volume,
 } from './model'
 import { PreserveIds } from './PreserveIds'
+import { NoteMarker } from './NoteMarker'
+import { orderedNotes, renderNoteMarkers } from './notes'
 import ChapterReview from './ChapterReview'
 import FindReplace from './FindReplaceDialog'
 import type { FindReplaceResult } from './findReplace'
 import { imageLinkUrls, replaceImageLinks } from './imageLinks'
 import VolumeSettings from './VolumeSettings'
+import ChapterImagesSettings from './ChapterImagesSettings'
 import LibraryPanel, { type AssetData, type AssetKind, type AssetSummary } from './LibraryPanel'
 import Home, { type WorkspaceSummary } from './Home'
+import HeadingTitle from './HeadingTitle'
+import HeadingStyleControls, { type HeadingStyleKey } from './HeadingStyleControls'
+import type { HeadingLineStyle } from './model'
 
 type View = 'edit' | 'preview'
 interface ReviewState { mode: 'import' | 'manage'; book: Project; sourcePath?: string }
@@ -65,6 +72,7 @@ export default function App() {
     extensions: [
       StarterKit.configure({ link: { openOnClick: false, HTMLAttributes: { target: null, rel: null } } }),
       PreserveIds,
+      NoteMarker,
       TextStyleKit,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Image.configure({ allowBase64: true }),
@@ -149,8 +157,12 @@ export default function App() {
     updateBook(previous => ({ ...previous, style: { ...previous.style, [key]: value } }))
   }
 
+  function setHeadingStyle(key: HeadingStyleKey, patch: Partial<HeadingLineStyle>) {
+    updateBook(previous => ({ ...previous, style: { ...previous.style, [key]: { ...(previous.style[key] ?? {}), ...patch } } }))
+  }
+
   function replaceBook(next: Project, id: number, message: string) {
-    next = { ...next, coverImage: next.coverImage ?? null, fontAssets: next.fontAssets ?? [] }
+    next = { ...next, coverImage: next.coverImage ?? null, chapterImages: next.chapterImages ?? [], fontAssets: next.fontAssets ?? [] }
     if (editor && !editor.isDestroyed) editor.commands.setContent(next.chapters[0].html, { emitUpdate: false })
     setBook(next)
     setSelectedId(next.chapters[0].id)
@@ -167,6 +179,19 @@ export default function App() {
   }
 
   function canReplace() { return !dirty || window.confirm('当前修改尚未保存，确定继续吗？') }
+
+  async function closeWindow() {
+    if (canReplace()) await getCurrentWindow().close().catch(cause => setError(errorMessage(cause)))
+  }
+
+  async function minimizeWindow() {
+    await getCurrentWindow().minimize().catch(cause => setError(errorMessage(cause)))
+  }
+
+  async function toggleFullscreen() {
+    const window = getCurrentWindow()
+    try { await window.setFullscreen(!(await window.isFullscreen())) } catch (cause) { setError(errorMessage(cause)) }
+  }
 
   async function withBusy(action: () => Promise<void>) {
     setBusy(true)
@@ -240,7 +265,7 @@ export default function App() {
     }))
   }
 
-  async function pickVolumeImage() {
+  async function pickImage() {
     const path = await open({ multiple: false, filters: imageFilters })
     if (typeof path !== 'string') return null
     try {
@@ -334,15 +359,20 @@ export default function App() {
     })
   }
 
-  async function chooseImage(target: 'coverImage' | 'openingImage' | 'closingImage' | 'inline') {
+  async function chooseImage(target: 'coverImage' | 'inline') {
     const path = await open({ multiple: false, filters: imageFilters })
     if (typeof path !== 'string') return
     await withBusy(async () => {
       const source = await invoke<string>('read_image', { path })
       if (target === 'inline') editor?.chain().focus().setImage({ src: source, alt: '章节插图' }).run()
-      else updateBook(previous => ({ ...previous, [target]: source }))
+      else updateBook(previous => ({ ...previous, coverImage: source }))
       setNotice('图片已添加')
     })
+  }
+
+  function addChapterImage(image: string) {
+    updateBook(previous => ({ ...previous, chapterImages: [...previous.chapterImages, createChapterImage(image)] }))
+    setNotice('已添加章节图片，默认作用全部章节、位于标题下方')
   }
 
   async function loadLibraryAssets() {
@@ -377,12 +407,19 @@ export default function App() {
     })
   }
 
-  async function useLibraryImage(asset: AssetSummary, target: 'coverImage' | 'openingImage' | 'closingImage' | 'inline') {
+  async function useLibraryImage(asset: AssetSummary, target: 'coverImage' | 'chapterImage' | 'inline') {
     await withBusy(async () => {
       const data = await invoke<AssetData>('get_asset', { id: asset.id })
-      if (target === 'inline') { setView('edit'); editor?.chain().focus().setImage({ src: data.dataUri, alt: asset.name }).run() }
-      else updateBook(previous => ({ ...previous, [target]: data.dataUri }))
-      setNotice('图片已添加到书稿')
+      if (target === 'inline') {
+        setView('edit')
+        editor?.chain().focus().setImage({ src: data.dataUri, alt: asset.name }).run()
+        setNotice('图片已添加到书稿')
+      } else if (target === 'chapterImage') {
+        addChapterImage(data.dataUri)
+      } else {
+        updateBook(previous => ({ ...previous, coverImage: data.dataUri }))
+        setNotice('图片已添加到书稿')
+      }
     })
   }
 
@@ -405,6 +442,30 @@ export default function App() {
     updateBook(previous => ({ ...previous, chapters: [...previous.chapters, { id, title: `第${previous.chapters.length + 1}章`, html: '<p></p>' }] }))
     setSelectedId(id)
     setView('edit')
+  }
+
+  function addNote() {
+    if (!editor) return
+    const id = crypto.randomUUID()
+    const number = orderedNotes(selectedChapter).length + 1
+    editor.chain().focus().insertContent({ type: 'noteMarker', attrs: { noteId: id, number } }).run()
+    updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, notes: [...(chapter.notes ?? []), { id, text: '' }] } : chapter) }))
+    setNotice(`已插入备注标记 [${number}]，请在章末填写内容`)
+  }
+
+  function updateNote(id: string, text: string) {
+    updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, notes: (chapter.notes ?? []).map(note => note.id === id ? { ...note, text } : note) } : chapter) }))
+  }
+
+  function deleteNote(id: string) {
+    if (editor) {
+      const positions: number[] = []
+      editor.state.doc.descendants((node, pos) => { if (node.type.name === 'noteMarker' && node.attrs.noteId === id) positions.push(pos) })
+      const chain = editor.chain()
+      positions.reverse().forEach(pos => chain.deleteRange({ from: pos, to: pos + 1 }))
+      chain.run()
+    }
+    updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, notes: (chapter.notes ?? []).filter(note => note.id !== id) } : chapter) }))
   }
 
   function deleteChapter() {
@@ -523,6 +584,9 @@ export default function App() {
       onDelete={deleteWorkspace}
       onImportBook={importFile}
       onImportProject={openProject}
+      onWindowClose={() => void closeWindow()}
+      onWindowMinimize={() => void minimizeWindow()}
+      onWindowFullscreen={() => void toggleFullscreen()}
     />
     {reviewDialog}
   </>
@@ -530,6 +594,7 @@ export default function App() {
   return <div className="app-shell">
     <style>{embeddedFontCss}</style>
     <header className="topbar">
+      <div className="window-controls" aria-label="窗口控制"><button className="window-close" title="关闭窗口" aria-label="关闭窗口" onClick={() => void closeWindow()}><X size={13}/></button><button className="window-minimize" title="最小化窗口" aria-label="最小化窗口" onClick={() => void minimizeWindow()}><Minus size={13}/></button><button className="window-fullscreen" title="切换全屏" aria-label="切换全屏" onClick={() => void toggleFullscreen()}><Maximize2 size={11}/></button></div>
       <div className="brand"><div className="brand-icon"><BookOpen size={22} strokeWidth={2.3} /></div><div><strong>EPUB Studio</strong><span>电子书编辑器</span></div></div>
       <div className="document-state"><span className="document-name">{book.title}</span><span className={dirty ? 'state-dot dirty' : 'state-dot'} />{dirty ? '未保存' : '已保存'}</div>
       <div className="top-actions">
@@ -585,35 +650,37 @@ export default function App() {
             </select>
             {currentVolume && <button className="button subtle" onClick={() => setVolumeSettingsId(currentVolume.id)}><Settings2 size={15}/>卷设置</button>}
           </div>
-          <div className="chapter-title-field"><label htmlFor="chapter-title">章节标题</label><input id="chapter-title" value={selectedChapter.title} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, title: event.target.value } : chapter) }))} /></div>
+          <div className="chapter-title-field"><label htmlFor="chapter-title">章节标题</label><input id="chapter-title" value={selectedChapter.title} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, title: event.target.value } : chapter) }))} /><select aria-label="章节标题排列" value={selectedChapter.titleLayout ?? 'stacked'} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, titleLayout: event.target.value as 'inline' | 'stacked' } : chapter) }))}><option value="stacked">分两行</option><option value="inline">同一行</option></select></div>
           <div className="editor-toolbar" aria-label="文字格式工具栏">
             <button title="撤销" aria-label="撤销" onClick={() => editor?.chain().focus().undo().run()}><Undo2 size={17}/></button><button title="重做" aria-label="重做" onClick={() => editor?.chain().focus().redo().run()}><Redo2 size={17}/></button><span className="toolbar-divider"/>
             <select aria-label="段落样式" defaultValue="paragraph" onChange={event => { const value = event.target.value; if (value === 'paragraph') editor?.chain().focus().setParagraph().run(); else editor?.chain().focus().toggleHeading({ level: Number(value) as 1 | 2 | 3 }).run() }}><option value="paragraph">正文段落</option><option value="1">一级标题</option><option value="2">二级标题</option><option value="3">三级标题</option></select>
+            <button className="note-toolbar-button" title="在光标处插入备注" aria-label="在光标处插入备注" onClick={addNote}><MessageSquareText size={16}/>插入备注</button>
             <select aria-label="所选文字字体" defaultValue="" onChange={event => { if (event.target.value) editor?.chain().focus().setFontFamily(event.target.value).run() }}><option value="">局部字体</option>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select>
             <select aria-label="所选文字字号" defaultValue="" onChange={event => { if (event.target.value) editor?.chain().focus().setFontSize(`${event.target.value}px`).run() }}><option value="">字号</option>{[12, 14, 16, 18, 20, 24, 28, 32, 40].map(size => <option key={size} value={size}>{size}</option>)}</select>
             <span className="toolbar-divider"/><button title="加粗" aria-label="加粗" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={17}/></button><button title="斜体" aria-label="斜体" onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={17}/></button><label className="color-picker" title="所选文字颜色"><span>A</span><input type="color" aria-label="所选文字颜色" onChange={event => editor?.chain().focus().setColor(event.target.value).run()}/></label>
             <span className="toolbar-divider"/><button title="左对齐" aria-label="左对齐" onClick={() => editor?.chain().focus().setTextAlign('left').run()}><AlignLeft size={17}/></button><button title="居中" aria-label="居中" onClick={() => editor?.chain().focus().setTextAlign('center').run()}><AlignCenter size={17}/></button><button title="右对齐" aria-label="右对齐" onClick={() => editor?.chain().focus().setTextAlign('right').run()}><AlignRight size={17}/></button><button title="两端对齐" aria-label="两端对齐" onClick={() => editor?.chain().focus().setTextAlign('justify').run()}><AlignJustify size={17}/></button>
             <span className="toolbar-divider"/><button title="无序列表" aria-label="无序列表" onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={17}/></button><button title="有序列表" aria-label="有序列表" onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={17}/></button><button title="在光标处插入图片" aria-label="在光标处插入图片" onClick={() => chooseImage('inline')}><ImagePlus size={18}/></button>
           </div>
-          <div className="editor-scroll" ref={editorScrollRef}><div className="paper edit-paper" style={selectedStyle}><h1 className="paper-chapter-title">{selectedChapter.title || '未命名章节'}</h1>{book.openingImage && <img className="boundary-image" src={book.openingImage} alt="章节开头"/>}<EditorContent editor={editor} className="chapter-editor" />{book.closingImage && <img className="boundary-image" src={book.closingImage} alt="章节末尾"/>}</div></div>
+          <div className="editor-scroll" ref={editorScrollRef}><div className="paper edit-paper" style={selectedStyle}>{chapterImagesAt(book, selectedChapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}<HeadingTitle title={selectedChapter.title || '未命名章节'} kind="chapter" layout={selectedChapter.titleLayout}/>{chapterImagesAt(book, selectedChapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}<EditorContent editor={editor} className="chapter-editor" />{orderedNotes(selectedChapter).length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{orderedNotes(selectedChapter).map((note, index) => <div className="note-edit-row" key={note.id}><span>[{index + 1}]</span><textarea aria-label={`备注 ${index + 1}`} placeholder="输入备注内容" value={note.text} onChange={event => updateNote(note.id, event.target.value)}/><button title="删除备注" aria-label={`删除备注 ${index + 1}`} onClick={() => deleteNote(note.id)}><Trash2 size={16}/></button></div>)}</section>}</div></div>
         </> : <div className="preview-scroll" ref={previewScrollRef} onClick={handlePreviewClick}>
           <div className="preview-note">预览按当前统一样式显示整本书，卷的字体与图片设置也会生效。导出后阅读器可能使用自己的字体设置。</div>
           {groups.map(group => {
             const volumeStyle = group.volume ? previewStyles(resolveStyle(book.style, group.volume.style)) as CSSProperties : undefined
             return <Fragment key={group.volume?.id ?? group.chapters[0]?.id ?? 'empty'}>
               {group.volume && <article className="paper preview-paper volume-paper" style={volumeStyle}>
-                <h1 className="paper-chapter-title">{group.volume.title}</h1>
+                <HeadingTitle title={group.volume.title} kind="volume" layout={group.volume.titleLayout}/>
                 {group.volume.openingImage && <img className="boundary-image" src={group.volume.openingImage} alt="卷首图"/>}
               </article>}
               {group.chapters.map(chapter => {
                 const index = chapterIndex.get(chapter.id) ?? 0
                 const last = group.chapters[group.chapters.length - 1].id === chapter.id
                 return <article className="paper preview-paper" id={`preview-chapter-${index + 1}`} style={previewStyles(chapterStyle(book, chapter)) as CSSProperties} key={chapter.id}>
-                  <h1 className="paper-chapter-title" id={chapter.titleId ?? undefined}>{chapter.title}</h1>
-                  {book.openingImage && <img className="boundary-image" src={book.openingImage} alt="章节开头"/>}
-                  <div className="preview-content" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(chapter.html, { USE_PROFILES: { html: true } }) }}/>
-                  {book.closingImage && <img className="boundary-image" src={book.closingImage} alt="章节末尾"/>}
+                  {chapterImagesAt(book, chapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}
+                  <HeadingTitle title={chapter.title} kind="chapter" id={chapter.titleId} layout={chapter.titleLayout}/>
+                  {chapterImagesAt(book, chapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}
+                  <div className="preview-content" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(renderNoteMarkers(chapter.html, orderedNotes(chapter)), { USE_PROFILES: { html: true } }) }}/>
                   {group.volume?.closingImage && last && <img className="boundary-image" src={group.volume.closingImage} alt="卷尾图"/>}
+                  {orderedNotes(chapter).length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{orderedNotes(chapter).map((note, number) => <p key={note.id}><span>[{number + 1}]</span> {note.text}</p>)}</section>}
                 </article>
               })}
             </Fragment>
@@ -624,9 +691,21 @@ export default function App() {
       <aside className="settings-panel" aria-label="图书设置与资源库"><div className="settings-inner"><div className="settings-tabs" role="tablist" aria-label="侧边栏"><button role="tab" aria-selected={settingsTab === 'settings'} className={settingsTab === 'settings' ? 'active' : ''} onClick={() => setSettingsTab('settings')}>图书设置</button><button role="tab" aria-selected={settingsTab === 'library'} className={settingsTab === 'library' ? 'active' : ''} onClick={() => setSettingsTab('library')}><LibraryBig size={15}/>资源库</button></div>{settingsTab === 'settings' ? <><div className="panel-heading"><div><span className="eyebrow">统一管理</span><h2>图书设置</h2></div></div>
         <section className="setting-section"><h3>基本信息</h3><label>书名<input value={book.title} onChange={event => updateBook(previous => ({ ...previous, title: event.target.value }))}/></label><label>作者<input value={book.author} onChange={event => updateBook(previous => ({ ...previous, author: event.target.value }))}/></label><label>语言<input value={book.language} onChange={event => updateBook(previous => ({ ...previous, language: event.target.value }))}/></label></section>
         <section className="setting-section"><h3>图书封面</h3><p className="setting-help">创建工程时可留空，保存后会显示在工程书架，并写入 EPUB。</p>{book.coverImage ? <div className="cover-slot"><img src={book.coverImage} alt="图书封面预览"/><div><button className="button outline" onClick={() => chooseImage('coverImage')}>更换封面</button><button className="button subtle" onClick={() => updateBook(previous => ({ ...previous, coverImage: null }))}>移除</button></div></div> : <button className="image-add" onClick={() => chooseImage('coverImage')}><ImagePlus size={17}/>上传封面</button>}</section>
-        <section className="setting-section"><h3>章节标题</h3><label>字体<select value={book.style.titleFontFamily} onChange={event => setStyle('titleFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>字号<input type="number" min="16" max="72" value={book.style.titleFontSize} onChange={event => setStyle('titleFontSize', Number(event.target.value))}/></label><label>对齐<select value={book.style.titleAlign} onChange={event => setStyle('titleAlign', event.target.value)}><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option></select></label></div></section>
+        <HeadingStyleControls label="章节序号" styleKey="chapterNumberStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
+        <HeadingStyleControls label="章节名称" styleKey="chapterNameStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
+        <HeadingStyleControls label="卷序号" styleKey="volumeNumberStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
+        <HeadingStyleControls label="卷名称" styleKey="volumeNameStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
         <section className="setting-section"><h3>正文</h3><label>字体<select value={book.style.bodyFontFamily} onChange={event => setStyle('bodyFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>字号<input type="number" min="10" max="48" value={book.style.bodyFontSize} onChange={event => setStyle('bodyFontSize', Number(event.target.value))}/></label><label>行距<input type="number" min="1.2" max="3" step="0.1" value={book.style.bodyLineHeight} onChange={event => setStyle('bodyLineHeight', Number(event.target.value))}/></label></div><label>对齐<select value={book.style.bodyAlign} onChange={event => setStyle('bodyAlign', event.target.value)}><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label><label className="setting-checkbox"><input type="checkbox" checked={!!book.style.bodyFirstLineIndent} onChange={event => setStyle('bodyFirstLineIndent', event.target.checked)}/>首行缩进两字（2em）</label></section>
-        <section className="setting-section"><h3>每章图片</h3><p className="setting-help">统一应用在每个章节的开头或末尾。</p>{(['openingImage', 'closingImage'] as const).map((target) => <div className="image-slot" key={target}><span>{target === 'openingImage' ? '章节开头' : '章节末尾'}</span>{book[target] ? <div className="image-slot-preview"><img src={book[target]!} alt={target === 'openingImage' ? '章节开头图片' : '章节末尾图片'}/><button title="移除图片" aria-label="移除图片" onClick={() => updateBook(previous => ({ ...previous, [target]: null }))}><X size={16}/></button></div> : <button className="image-add" onClick={() => chooseImage(target)}><ImagePlus size={17}/>选择图片</button>}</div>)}</section>
+        <section className="setting-section"><h3>备注样式</h3><label>备注字体<select value={book.style.noteFontFamily ?? 'serif'} onChange={event => setStyle('noteFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>备注字号<input type="number" min="10" max="32" value={book.style.noteFontSize ?? 14} onChange={event => setStyle('noteFontSize', Number(event.target.value))}/></label><label>备注颜色<input type="color" value={book.style.noteColor ?? '#526963'} onChange={event => setStyle('noteColor', event.target.value)}/></label></div><div className="field-row"><label>标记字号<input type="number" min="8" max="32" value={book.style.noteMarkerSize ?? 12} onChange={event => setStyle('noteMarkerSize', Number(event.target.value))}/></label><label>标记颜色<input type="color" value={book.style.noteMarkerColor ?? '#0b8578'} onChange={event => setStyle('noteMarkerColor', event.target.value)}/></label></div></section>
+        <ChapterImagesSettings
+          entries={book.chapterImages}
+          chapters={book.chapters}
+          volumes={book.volumes}
+          selectedChapterId={selectedId}
+          busy={busy}
+          onPickImage={pickImage}
+          onChange={entries => updateBook(previous => ({ ...previous, chapterImages: entries }))}
+        />
       </> : <LibraryPanel
           kind={assetKind}
           assets={assets}
@@ -651,7 +730,7 @@ export default function App() {
       chapterCount={book.chapters.filter(chapter => chapter.volumeId === editingVolume.id).length}
       busy={busy}
       error={error}
-      onPickImage={pickVolumeImage}
+      onPickImage={pickImage}
       onCancel={() => setVolumeSettingsId(null)}
       onSave={saveVolume}
       onDelete={deleteVolume}
