@@ -1,6 +1,6 @@
 # EPUB Studio
 
-使用 Rust 和 TypeScript 构建的 Windows / macOS 电子书编辑器。保留了原来的 `txt2epub` 命令行转换工具。
+使用 Rust 和 TypeScript 构建的 Windows / macOS 电子书编辑器。
 
 ## 桌面编辑器
 
@@ -41,20 +41,10 @@ npm run package:win  # Windows
 - 图片支持 PNG、JPEG、GIF、WebP、SVG。统一首尾图在导出包中复用同一资源。
 - 预览使用当前项目样式；实际阅读器可能允许读者覆盖字体设置。
 
-## 命令行 TXT 转 EPUB
-
-```bash
-cargo run -- book.txt
-cargo run -- book.txt output.epub --title "书名" --author "作者"
-```
-
-省略输出路径时，在输入文件旁创建同名 `.epub`。
-
 ## 验证
 
 ```bash
 npm test
 npm run build
-cargo test
 cargo test --manifest-path src-tauri/Cargo.toml
 ```

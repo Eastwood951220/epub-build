@@ -1,5 +1,6 @@
 pub mod assets;
 pub mod project;
+pub mod txt;
 pub mod workspace;
 
 use tauri::Manager;

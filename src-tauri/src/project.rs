@@ -12,8 +12,9 @@ use std::{
 };
 use tempfile::NamedTempFile;
 use time::{OffsetDateTime, macros::format_description};
-use txt2epub::ChapterKind;
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
+
+use crate::txt::{self, ChapterKind};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -277,7 +278,7 @@ pub fn import_txt_with_patterns(
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
-    let book = txt2epub::parse_book_with_patterns(&text, &title, chapter_pattern, volume_pattern)?;
+    let book = txt::parse_book_with_patterns(&text, &title, chapter_pattern, volume_pattern)?;
     if book
         .chapters
         .iter()

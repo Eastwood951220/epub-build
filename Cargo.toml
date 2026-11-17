@@ -1,9 +1,0 @@
-[package]
-name = "txt2epub"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-zip = { version = "9.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
-time = { version = "0.3", features = ["formatting", "macros"] }
-regex = "1"

@@ -26,7 +26,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
       - run: npm test
-      - run: cargo test
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: npx tauri build --bundles ${{ matrix.bundle }}
       - uses: actions/upload-artifact@v4
