@@ -72,6 +72,23 @@ fn import_book(path: String) -> Result<project::Project, String> {
 }
 
 #[tauri::command]
+fn redetect_txt(
+    path: String,
+    chapter_pattern: Option<String>,
+    volume_pattern: Option<String>,
+) -> Result<project::Project, String> {
+    let path = std::path::Path::new(&path);
+    if !path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("txt"))
+    {
+        return Err("只能重新识别 TXT 文件".into());
+    }
+    project::import_txt_with_patterns(path, chapter_pattern.as_deref(), volume_pattern.as_deref())
+}
+
+#[tauri::command]
 fn load_project(path: String) -> Result<project::Project, String> {
     project::load_project(std::path::Path::new(&path))
 }
@@ -96,6 +113,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             import_book,
+            redetect_txt,
             load_project,
             save_project,
             export_epub,

@@ -13,7 +13,9 @@ const TAG_PATTERN = /<(\/?)([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^'">])*?)(\/?)>
  */
 export function looksLikeChapterHeading(text: string): boolean {
   const line = text.trim()
-  if (!line || line.length > 40) return false
+  if (!line) return false
+  if (line.length <= 80 && /^\d{1,4}、\s*\S/.test(line) && !/[。；;，,]$/.test(line)) return true
+  if (line.length > 40) return false
   if (/[。；;，,、]$/.test(line)) return false
   if (line.startsWith('第')) {
     let index = 1
@@ -333,7 +335,7 @@ export function arabicToChinese(value: number): string {
   return text.replace(/^一十/, '十')
 }
 
-export type ChapterNumberStyle = 'chinese' | 'arabic' | 'bare' | 'dot' | 'name'
+export type ChapterNumberStyle = 'chinese' | 'arabic' | 'bare' | 'dot' | 'dun' | 'name'
 export type ChapterCounting = 'book' | 'volume' | 'keep'
 
 export interface ParsedChapterTitle {
@@ -373,6 +375,7 @@ export function formatChapterTitle(number: number, text: string, style: ChapterN
     case 'arabic': return `第${number}章${name ? ' ' + name : ''}`
     case 'bare': return `${number}${name ? ' ' + name : ''}`
     case 'dot': return `${number}.${name ? ' ' + name : ''}`
+    case 'dun': return `${number}、${name}`
     case 'name': return name
   }
 }

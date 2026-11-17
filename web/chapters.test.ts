@@ -22,7 +22,7 @@ const chapter = (id: string, title: string, html: string): EditableChapter => ({
 
 describe('chapter heading detection', () => {
   it('accepts common Chinese and English headings', () => {
-    for (const title of ['第一章 开始', '第二十一章，债台高筑', '第一卷 少年', '第1章', 'Chapter 3: Return', '尾声']) {
+    for (const title of ['第一章 开始', '第二十一章，债台高筑', '第一卷 少年', '第1章', 'Chapter 3: Return', '尾声', '1、诱惑力太大！', '544、 我男人！真帅！']) {
       expect(looksLikeChapterHeading(title), title).toBe(true)
     }
   })
@@ -175,10 +175,15 @@ describe('chapter title numbering', () => {
     expect(parseChapterTitle('第一章 第一血')).toEqual({ number: 1, unit: '章', text: '第一血' })
     expect(parseChapterTitle('第1章 “便是改革天皇制度”')).toEqual({ number: 1, unit: '章', text: '“便是改革天皇制度”' })
     expect(parseChapterTitle('1. 开端')).toEqual({ number: 1, unit: null, text: '开端' })
+    expect(parseChapterTitle('1、诱惑力太大！')).toEqual({ number: 1, unit: null, text: '诱惑力太大！' })
     expect(parseChapterTitle('12 远行')).toEqual({ number: 12, unit: null, text: '远行' })
     expect(parseChapterTitle('Chapter 3: Return')).toEqual({ number: 3, unit: null, text: 'Return' })
     expect(parseChapterTitle('尾声')).toEqual({ number: null, unit: null, text: '尾声' })
     expect(parseChapterTitle('第四卷 S2赛季')).toEqual({ number: 4, unit: '卷', text: 'S2赛季' })
+  })
+
+  it('formats the numbered dun style', () => {
+    expect(formatChapterTitle(3, '新章', 'dun')).toBe('3、新章')
   })
 
   it('formats titles in every supported style', () => {
@@ -219,6 +224,16 @@ describe('chapter title numbering', () => {
     ]
     const result = renumberChapters(scoped, volumes, { style: 'arabic', counting: 'volume', start: 1, renumberVolumes: false })
     expect(result.chapters.map(item => item.title)).toEqual(['第1章 甲', '第2章 乙', '第1章 丙'])
+  })
+
+  it('uses dun titles with numbering restarted for each volume', () => {
+    const scoped = [
+      { ...chapter('a', '18、甲', '<p>一。</p>'), volumeId: 'v1' },
+      { ...chapter('b', '19、乙', '<p>二。</p>'), volumeId: 'v1' },
+      { ...chapter('c', '20、丙', '<p>三。</p>'), volumeId: 'v2' },
+    ]
+    const result = renumberChapters(scoped, [], { style: 'dun', counting: 'volume', start: 1, renumberVolumes: false })
+    expect(result.chapters.map(item => item.title)).toEqual(['1、甲', '2、乙', '1、丙'])
   })
 
   it('keeps original numbers and adds a prefix to titles that had none', () => {

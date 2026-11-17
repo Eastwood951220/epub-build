@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUpToLine, ChevronDown, ChevronUp, Layers, Trash2, X } from 'lucide-react'
-import { chapterGroups, type EditableChapter, type Volume } from './model'
+import { chapterGroups, type EditableChapter, type Project, type Volume } from './model'
 import {
   blockCount,
   formatChapterTitle,
@@ -24,6 +24,8 @@ export interface ChapterReviewProps {
   mode: 'import' | 'manage'
   chapters: EditableChapter[]
   volumes: Volume[]
+  sourcePath?: string
+  onRedetect?: (chapterPattern?: string, volumePattern?: string) => Promise<Project>
   bookTitle: string
   busy?: boolean
   error?: string
@@ -33,7 +35,7 @@ export interface ChapterReviewProps {
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export default function ChapterReview({ mode, chapters, volumes, bookTitle, busy = false, error, onCancel, onConfirm }: ChapterReviewProps) {
+export default function ChapterReview({ mode, chapters, volumes, sourcePath, onRedetect, bookTitle, busy = false, error, onCancel, onConfirm }: ChapterReviewProps) {
   const [drafts, setDrafts] = useState<EditableChapter[]>(() => chapters.map(chapter => ({ ...chapter })))
   const [volumeDrafts, setVolumeDrafts] = useState<Volume[]>(() => volumes.map(volume => ({ ...volume, style: { ...volume.style } })))
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -48,6 +50,9 @@ export default function ChapterReview({ mode, chapters, volumes, bookTitle, busy
   const [renumberVolumes, setRenumberVolumes] = useState(true)
   const [message, setMessage] = useState('')
   const [working, setWorking] = useState(false)
+  const [chapterPattern, setChapterPattern] = useState('')
+  const [volumePattern, setVolumePattern] = useState('')
+  const [ruleError, setRuleError] = useState('')
   const panel = useRef<HTMLDivElement>(null)
 
   const counts = useMemo(() => new Map(drafts.map(chapter => [chapter.id, blockCount(chapter)])), [drafts])
@@ -141,6 +146,23 @@ export default function ChapterReview({ mode, chapters, volumes, bookTitle, busy
     setMessage(parts.length === 0 ? '章节标题已经是目标格式' : `已重排 ${parts.join('、')}标题`)
   }
 
+  async function redetect() {
+    if (!onRedetect) return
+    setWorking(true)
+    setRuleError('')
+    try {
+      const next = await onRedetect(chapterPattern.trim() || undefined, volumePattern.trim() || undefined)
+      setDrafts(next.chapters)
+      setVolumeDrafts(next.volumes)
+      setExpanded(null)
+      setMessage(`已重新识别 ${next.chapters.length} 章、${next.volumes.length} 卷`)
+    } catch (cause) {
+      setRuleError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setWorking(false)
+    }
+  }
+
   const numberingPreview = (() => {
     if (numberStyle === 'name' && drafts.length === 0) return '示例：—'
     if (drafts.length === 0) return '示例：—'
@@ -190,6 +212,16 @@ export default function ChapterReview({ mode, chapters, volumes, bookTitle, busy
         <button className="review-close" aria-label="关闭章节核对" title="关闭" onClick={() => { if (!pending) onCancel() }}><X size={18}/></button>
       </header>
 
+      {mode === 'import' && sourcePath && <section className="review-rules" aria-label="TXT 章节识别规则">
+        <div className="review-rules-fields">
+          <label className="review-field">章节正则<input value={chapterPattern} onChange={event => setChapterPattern(event.target.value)} placeholder={String.raw`^\d+、.+$`}/></label>
+          <label className="review-field">卷正则<input value={volumePattern} onChange={event => setVolumePattern(event.target.value)} placeholder={String.raw`^第\d+卷.*$`}/></label>
+          <button className="button outline" disabled={pending} onClick={() => void redetect()}>重新识别</button>
+        </div>
+        <p className="review-hint">留空使用默认规则；填写后替换对应默认规则。正则按单行匹配，建议加 ^ 和 $。重新识别会重置当前章节与卷标题的手工修改。</p>
+        {ruleError && <p className="review-rule-error" role="alert">{ruleError}</p>}
+      </section>}
+
       <section className="review-replace" aria-label="批量替换文字">
         <div className="review-replace-inputs">
           <label className="review-field">查找<input value={find} onChange={event => setFind(event.target.value)} placeholder="例如：第1章"/></label>
@@ -213,6 +245,7 @@ export default function ChapterReview({ mode, chapters, volumes, bookTitle, busy
             <option value="arabic">第X章（阿拉伯数字）</option>
             <option value="bare">1 名称</option>
             <option value="dot">1. 名称</option>
+            <option value="dun">1、名称</option>
             <option value="name">无前缀（只保留名称）</option>
           </select>
           <select value={counting} disabled={numberStyle === 'name'} onChange={event => setCounting(event.target.value as ChapterCounting)} aria-label="编号方式">

@@ -128,6 +128,14 @@ fn paragraphs_html(paragraphs: &[String]) -> String {
 }
 
 fn import_txt(path: &Path) -> Result<Project, String> {
+    import_txt_with_patterns(path, None, None)
+}
+
+pub fn import_txt_with_patterns(
+    path: &Path,
+    chapter_pattern: Option<&str>,
+    volume_pattern: Option<&str>,
+) -> Result<Project, String> {
     let text =
         fs::read_to_string(path).map_err(|e| format!("读取 TXT 失败（文件需要是 UTF-8）：{e}"))?;
     let title = path
@@ -135,8 +143,11 @@ fn import_txt(path: &Path) -> Result<Project, String> {
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
-    let book = txt2epub::parse_book(&text, &title);
-    if book.chapters.iter().all(|c| !matches!(c.kind, ChapterKind::Volume) && c.paragraphs.is_empty())
+    let book = txt2epub::parse_book_with_patterns(&text, &title, chapter_pattern, volume_pattern)?;
+    if book
+        .chapters
+        .iter()
+        .all(|c| !matches!(c.kind, ChapterKind::Volume) && c.paragraphs.is_empty())
     {
         return Err("TXT 文件没有正文".into());
     }
@@ -177,7 +188,11 @@ fn import_txt(path: &Path) -> Result<Project, String> {
     }
     // A volume heading without chapters would export an empty page; drop it and
     // keep everything else untouched.
-    volumes.retain(|volume| chapters.iter().any(|chapter| chapter.volume_id.as_deref() == Some(volume.id.as_str())));
+    volumes.retain(|volume| {
+        chapters
+            .iter()
+            .any(|chapter| chapter.volume_id.as_deref() == Some(volume.id.as_str()))
+    });
     Ok(Project {
         version: 1,
         title,
@@ -424,11 +439,10 @@ fn volume_css(book: &Project) -> String {
 }
 
 fn chapter_volume_index(book: &Project, chapter: &EditableChapter) -> Option<usize> {
-    chapter.volume_id.as_ref().and_then(|id| {
-        book.volumes
-            .iter()
-            .position(|volume| &volume.id == id)
-    })
+    chapter
+        .volume_id
+        .as_ref()
+        .and_then(|id| book.volumes.iter().position(|volume| &volume.id == id))
 }
 
 pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
@@ -442,7 +456,12 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
     write_zip(&mut zip, "META-INF/container.xml", br#"<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#, compressed)?;
     let mut css = style_css(&book.style, &book.font_assets);
     css.push_str(&volume_css(book));
-    write_zip(&mut zip, "OEBPS/styles/book.css", css.as_bytes(), compressed)?;
+    write_zip(
+        &mut zip,
+        "OEBPS/styles/book.css",
+        css.as_bytes(),
+        compressed,
+    )?;
     let mut assets = Vec::new();
     let cover_name = book
         .cover_image

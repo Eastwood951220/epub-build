@@ -24,7 +24,7 @@ import LibraryPanel, { type AssetData, type AssetKind, type AssetSummary } from 
 import Home, { type WorkspaceSummary } from './Home'
 
 type View = 'edit' | 'preview'
-interface ReviewState { mode: 'import' | 'manage'; book: Project }
+interface ReviewState { mode: 'import' | 'manage'; book: Project; sourcePath?: string }
 const imageFilters = [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'svg'] }]
 const fontFilters = [{ name: '字体', extensions: ['ttf', 'otf', 'woff', 'woff2'] }]
 
@@ -154,9 +154,9 @@ export default function App() {
     try { await action() } catch (cause) { setError(errorMessage(cause)) } finally { setBusy(false) }
   }
 
-  function openReview(mode: ReviewState['mode'], source: Project) {
+  function openReview(mode: ReviewState['mode'], source: Project, sourcePath?: string) {
     setError('')
-    setReview({ mode, book: source })
+    setReview({ mode, book: source, sourcePath })
     setReviewKey(key => key + 1)
   }
 
@@ -237,7 +237,7 @@ export default function App() {
     if (typeof path !== 'string') return
     await withBusy(async () => {
       const next = await invoke<Project>('import_book', { path })
-      openReview('import', next)
+      openReview('import', next, path.toLowerCase().endsWith('.txt') ? path : undefined)
       setNotice(`已识别 ${next.chapters.length} 个章节，核对后确认导入`)
     })
   }
@@ -437,6 +437,13 @@ export default function App() {
     mode={review.mode}
     chapters={review.book.chapters}
     volumes={review.book.volumes ?? []}
+    sourcePath={review.sourcePath}
+    onRedetect={async (chapterPattern, volumePattern) => {
+      if (!review.sourcePath) throw new Error('未找到 TXT 源文件')
+      const next = await invoke<Project>('redetect_txt', { path: review.sourcePath, chapterPattern, volumePattern })
+      setReview(previous => previous ? { ...previous, book: next } : previous)
+      return next
+    }}
     bookTitle={review.book.title}
     busy={busy}
     error={error}

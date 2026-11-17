@@ -1,3 +1,4 @@
+use regex::Regex;
 use std::io::{Cursor, Write};
 use time::{OffsetDateTime, macros::format_description};
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
@@ -24,6 +25,43 @@ pub struct Book {
 }
 
 pub fn parse_book(text: &str, title: &str) -> Book {
+    parse_book_inner(text, title, None, None)
+}
+
+/// Custom patterns are matched against a trimmed, complete line. When present,
+/// they replace the corresponding built-in heading detector.
+pub fn parse_book_with_patterns(
+    text: &str,
+    title: &str,
+    chapter_pattern: Option<&str>,
+    volume_pattern: Option<&str>,
+) -> Result<Book, String> {
+    let compile = |pattern: Option<&str>, label: &str| -> Result<Option<Regex>, String> {
+        let Some(pattern) = pattern.filter(|value| !value.trim().is_empty()) else {
+            return Ok(None);
+        };
+        let regex = Regex::new(pattern).map_err(|error| format!("{label}正则无效：{error}"))?;
+        if regex.is_match("") {
+            return Err(format!("{label}正则不能匹配空行"));
+        }
+        Ok(Some(regex))
+    };
+    let chapter = compile(chapter_pattern, "章节")?;
+    let volume = compile(volume_pattern, "卷")?;
+    Ok(parse_book_inner(
+        text,
+        title,
+        chapter.as_ref(),
+        volume.as_ref(),
+    ))
+}
+
+fn parse_book_inner(
+    text: &str,
+    title: &str,
+    chapter_pattern: Option<&Regex>,
+    volume_pattern: Option<&Regex>,
+) -> Book {
     let mut chapters = Vec::new();
     let mut current = Chapter {
         title: "前言".into(),
@@ -46,9 +84,14 @@ pub fn parse_book(text: &str, title: &str) -> Book {
         let boundary = paragraph.is_empty() || ends_paragraph(&paragraph);
         let kind = if !boundary {
             None
-        } else if is_volume_heading(line) {
+        } else if volume_pattern
+            .map_or_else(|| is_volume_heading(line), |pattern| pattern.is_match(line))
+        {
             Some(ChapterKind::Volume)
-        } else if is_chapter_heading(line) {
+        } else if chapter_pattern.map_or_else(
+            || is_chapter_heading(line),
+            |pattern| pattern.is_match(line),
+        ) {
             Some(ChapterKind::Chapter)
         } else {
             None
@@ -104,8 +147,7 @@ pub fn parse_book(text: &str, title: &str) -> Book {
 /// Characters that finish a paragraph. A line ending with one of these starts a
 /// new paragraph on the next line; any other ending means the line was wrapped
 /// at a fixed width and the next line continues it.
-const PARAGRAPH_END: &str =
-    "。！？!?…～：:“”‘’\"'「」『』（）()【】《》〈〉";
+const PARAGRAPH_END: &str = "。！？!?…～：:“”‘’\"'「」『』（）()【】《》〈〉";
 const CHINESE_NUMERALS: &str = "零〇一二三四五六七八九十百千万两";
 const VOLUME_UNITS: &str = "卷部篇";
 const CHAPTER_UNITS: &str = "章节回集";
@@ -123,6 +165,9 @@ fn flush_paragraph(chapter: &mut Chapter, paragraph: &mut String) {
 }
 
 fn is_chapter_heading(line: &str) -> bool {
+    if numbered_dun_heading(line) {
+        return true;
+    }
     if let Some(unit) = heading_unit(line) {
         return CHAPTER_UNITS.contains(unit);
     }
@@ -143,6 +188,21 @@ fn is_chapter_heading(line: &str) -> bool {
         line,
         "序章" | "楔子" | "引子" | "尾声" | "后记" | "番外" | "终章"
     )
+}
+
+fn numbered_dun_heading(line: &str) -> bool {
+    let line = line.trim();
+    if line.chars().count() > 80 {
+        return false;
+    }
+    let digits = line.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits == 0 || digits > 4 {
+        return false;
+    }
+    let tail = &line[digits..];
+    tail.strip_prefix('、').is_some_and(|name| {
+        !name.trim().is_empty() && !name.ends_with(['。', '；', ';', '，', ','])
+    })
 }
 
 fn is_volume_heading(line: &str) -> bool {

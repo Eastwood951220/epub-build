@@ -94,6 +94,11 @@
 @media(max-width:760px){.volume-settings-panel{max-height:94vh}.vs-grid,.vs-images{grid-template-columns:1fr}}
 
 .review-renumber{flex:none;padding:11px 24px 12px;border-bottom:1px solid #e6efec;background:#fbfdfc}
+.review-rules{flex:none;padding:12px 24px;border-bottom:1px solid #e6efec;background:#f7fbf9}
+.review-rules-fields{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
+.review-rules>.review-hint{margin:7px 0 0}
+.review-rule-error{margin:7px 0 0;color:#b4472b;font-size:11px}
+@media(max-width:760px){.review-rules-fields{grid-template-columns:1fr 1fr}.review-rules-fields>.button{grid-column:1/-1}}
 .review-renumber-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .review-section-label{font-size:10px;font-weight:750;letter-spacing:.14em;color:#0d9488;white-space:nowrap}
 .review-renumber select{height:30px;max-width:210px;border:1px solid #dce8e3;border-radius:6px;background:#fff;color:#274c45;font-size:11px;padding:0 6px}

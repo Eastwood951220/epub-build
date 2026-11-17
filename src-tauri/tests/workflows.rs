@@ -1,4 +1,6 @@
-use epub_studio::project::{export_epub, import_book, load_project, save_project};
+use epub_studio::project::{
+    export_epub, import_book, import_txt_with_patterns, load_project, save_project,
+};
 use std::{fs, io::Read};
 use tempfile::tempdir;
 use zip::{CompressionMethod, ZipArchive};
@@ -57,6 +59,23 @@ fn txt_import_creates_editable_chapters() {
     assert_eq!(project.chapters.len(), 3);
     assert_eq!(project.chapters[1].title, "第一章 开始");
     assert!(project.chapters[1].html.contains("正文 &amp; 更多"));
+}
+
+#[test]
+fn txt_custom_rules_create_volume_groups() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(
+        &input,
+        "卷一：开端\n第1话 初见\n正文。\n第2话 告别\n正文。\n卷二：归来\n第1话 重逢\n正文。",
+    )
+    .unwrap();
+    let project =
+        import_txt_with_patterns(&input, Some(r"^第\d+话\s+.+$"), Some(r"^卷[一二]：.+$")).unwrap();
+    assert_eq!(project.volumes.len(), 2);
+    assert_eq!(project.chapters.len(), 3);
+    assert_eq!(project.chapters[0].volume_id.as_deref(), Some("volume-1"));
+    assert_eq!(project.chapters[2].volume_id.as_deref(), Some("volume-2"));
 }
 
 #[test]
