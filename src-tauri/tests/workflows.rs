@@ -46,6 +46,30 @@ fn selected_font_is_saved_and_embedded_in_epub() {
 }
 
 #[test]
+fn optional_first_line_indent_survives_save_and_controls_epub_css() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(&input, "第一章\n正文").unwrap();
+    let mut project = import_book(&input).unwrap();
+    project.style.body_first_line_indent = true;
+    let saved = dir.path().join("book.json");
+    save_project(&project, &saved).unwrap();
+    let loaded = load_project(&saved).unwrap();
+    assert!(loaded.style.body_first_line_indent);
+    let epub = dir.path().join("book.epub");
+    export_epub(&loaded, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(epub).unwrap()).unwrap();
+    let mut css = String::new();
+    archive.by_name("OEBPS/styles/book.css").unwrap().read_to_string(&mut css).unwrap();
+    assert!(css.contains("p{margin:0 0 .9em;text-indent:2em}"));
+
+    let mut legacy: serde_json::Value = serde_json::from_slice(&fs::read(&saved).unwrap()).unwrap();
+    legacy["style"].as_object_mut().unwrap().remove("bodyFirstLineIndent");
+    fs::write(&saved, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert!(!load_project(&saved).unwrap().style.body_first_line_indent);
+}
+
+#[test]
 fn txt_import_creates_editable_chapters() {
     let dir = tempdir().unwrap();
     let input = dir.path().join("我的书.txt");

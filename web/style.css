@@ -184,3 +184,7 @@
 
 .library-note{display:flex;align-items:flex-start;gap:6px;margin:12px 0 0;font-size:10px;line-height:1.65;color:#5f7a74}
 .library-note svg{flex:none;margin-top:1px;color:#768b85}
+
+.chapter-editor .ProseMirror > p,.preview-content > p{text-indent:var(--body-indent,0)}
+.setting-section .setting-checkbox{display:flex;flex-direction:row;align-items:center;gap:8px;color:#3e625a}
+.setting-section .setting-checkbox input[type=checkbox]{width:16px;height:16px;flex:none;margin:0;padding:0;accent-color:#0d9488}

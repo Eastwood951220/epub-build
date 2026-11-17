@@ -6,6 +6,7 @@ export interface BookStyle {
   bodyFontSize: number
   bodyLineHeight: number
   bodyAlign: string
+  bodyFirstLineIndent: boolean
 }
 
 export interface VolumeStyle {
@@ -75,7 +76,7 @@ export function createEmptyProject(): Project {
     language: 'zh-CN',
     style: {
       titleFontFamily: 'serif', titleFontSize: 30, titleAlign: 'center',
-      bodyFontFamily: 'serif', bodyFontSize: 18, bodyLineHeight: 1.8, bodyAlign: 'justify',
+      bodyFontFamily: 'serif', bodyFontSize: 18, bodyLineHeight: 1.8, bodyAlign: 'justify', bodyFirstLineIndent: false,
     },
     coverImage: null,
     openingImage: null,
@@ -104,6 +105,7 @@ export function resolveStyle(base: BookStyle, overrides: VolumeStyle = {}): Book
     bodyFontSize: overrides.bodyFontSize ?? base.bodyFontSize,
     bodyLineHeight: overrides.bodyLineHeight ?? base.bodyLineHeight,
     bodyAlign: overrides.bodyAlign ?? base.bodyAlign,
+    bodyFirstLineIndent: base.bodyFirstLineIndent ?? false,
   }
 }
 
@@ -155,6 +157,7 @@ export function previewStyles(style: BookStyle): Record<string, string> {
     '--body-size': `${style.bodyFontSize}px`,
     '--body-line-height': String(style.bodyLineHeight),
     '--body-align': style.bodyAlign,
+    '--body-indent': style.bodyFirstLineIndent ? '2em' : '0',
   }
 }
 

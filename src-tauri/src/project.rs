@@ -79,6 +79,8 @@ pub struct BookStyle {
     pub body_font_size: u16,
     pub body_line_height: f32,
     pub body_align: String,
+    #[serde(default)]
+    pub body_first_line_indent: bool,
 }
 
 impl Default for BookStyle {
@@ -91,6 +93,7 @@ impl Default for BookStyle {
             body_font_size: 18,
             body_line_height: 1.8,
             body_align: "justify".into(),
+            body_first_line_indent: false,
         }
     }
 }
@@ -428,14 +431,15 @@ fn style_css(style: &BookStyle, fonts: &[EmbeddedFont]) -> String {
         }
     }
     format!(
-        "{faces}body{{font-family:{};font-size:{}px;line-height:{:.2};text-align:{};margin:0 auto;max-width:42em;padding:1.5em;color:#20302e}}h1{{font-family:{};font-size:{}px;text-align:{};line-height:1.35;margin:1.2em 0}}p{{margin:0 0 .9em}}img{{max-width:100%;height:auto}}.chapter-image{{text-align:center;margin:1.5em 0}}",
+        "{faces}body{{font-family:{};font-size:{}px;line-height:{:.2};text-align:{};margin:0 auto;max-width:42em;padding:1.5em;color:#20302e}}h1{{font-family:{};font-size:{}px;text-align:{};line-height:1.35;margin:1.2em 0}}p{{margin:0 0 .9em{}}}img{{max-width:100%;height:auto}}.chapter-image{{text-align:center;margin:1.5em 0}}",
         css_font(&style.body_font_family, fonts),
         style.body_font_size.clamp(10, 48),
         style.body_line_height.clamp(1.2, 3.0),
         css_align(&style.body_align),
         css_font(&style.title_font_family, fonts),
         style.title_font_size.clamp(16, 72),
-        css_align(&style.title_align)
+        css_align(&style.title_align),
+        if style.body_first_line_indent { ";text-indent:2em" } else { "" }
     )
 }
 
@@ -460,6 +464,7 @@ fn resolve_style(base: &BookStyle, overrides: &VolumeStyle) -> BookStyle {
             .body_align
             .clone()
             .unwrap_or_else(|| base.body_align.clone()),
+        body_first_line_indent: base.body_first_line_indent,
     }
 }
 

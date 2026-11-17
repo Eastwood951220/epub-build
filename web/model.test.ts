@@ -19,6 +19,14 @@ describe('project model', () => {
     expect(previewStyles(book.style)['--body-font']).toBe("'Songti SC', serif")
   })
 
+  it('uses the optional two-character first-line indent in preview and volume chapters', () => {
+    const book = createEmptyProject()
+    expect(book.style.bodyFirstLineIndent).toBe(false)
+    expect(previewStyles(book.style)['--body-indent']).toBe('0')
+    book.style.bodyFirstLineIndent = true
+    expect(previewStyles(resolveStyle(book.style, { bodyFontSize: 24 }))['--body-indent']).toBe('2em')
+  })
+
   it('keeps links pointing to the same chapter after reordering', () => {
     const before = [
       { id: 'a', title: 'One', html: '<p><a href="chapter-2.xhtml#end">next</a></p>' },
