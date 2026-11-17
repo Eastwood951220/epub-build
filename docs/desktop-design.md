@@ -12,6 +12,10 @@ Tauri 2 hosts a React/TypeScript editor. Rust owns filesystem access, TXT/EPUB i
 
 - Projects save to SQLite in the app data directory. A portable `.epubstudio.json` can be exported with embedded image and font data.
 - TXT chapter detection reuses the existing Rust library. Existing EPUB chapter order comes from its package spine.
+- TXT paragraphs break on blank lines, sentence-final punctuation, or in place of a hard wrap, so line-per-paragraph manuscripts keep their blocks.
+- Imports open a chapter review dialog before a project is created: titles are editable, false chapters merge upward, missed chapters split at any paragraph, and one bar replaces text across chapter bodies, chapter titles, and volume titles.
+- Chapter titles are parsed into a numbering prefix (第X章 / 1. / Chapter N, Chinese or Arabic numerals) and the real chapter name. One action rewrites all titles in a chosen prefix style while keeping the names, either numbered continuously, restarted per volume, or keeping the imported numbers and only filling in the missing ones.
+- Volumes are a grouping above chapters. Each volume owns a title, opening/closing images, and typography overrides of the book style; export writes a volume title page, nested navigation, and `volume-N` classes on its chapters.
 - EPUB import preserves common text blocks, inline formatting, and embedded images. Unsupported scripts and arbitrary EPUB CSS are discarded for safe editing.
 - The global style controls title/body font family, size, line height, and alignment. Selection formatting in Tiptap overrides it locally.
 - Opening/ending images are configured once and applied to each chapter; an editor toolbar inserts chapter-specific images at the cursor.

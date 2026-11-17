@@ -11,6 +11,7 @@ use std::{
 };
 use tempfile::NamedTempFile;
 use time::{OffsetDateTime, macros::format_description};
+use txt2epub::ChapterKind;
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -27,7 +28,36 @@ pub struct Project {
     pub closing_image: Option<String>,
     #[serde(default)]
     pub font_assets: Vec<EmbeddedFont>,
+    /// Shared volume library; chapters point at a volume through `volume_id`.
+    #[serde(default)]
+    pub volumes: Vec<Volume>,
     pub chapters: Vec<EditableChapter>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VolumeStyle {
+    pub title_font_family: Option<String>,
+    pub title_font_size: Option<u16>,
+    pub title_align: Option<String>,
+    pub body_font_family: Option<String>,
+    pub body_font_size: Option<u16>,
+    pub body_line_height: Option<f32>,
+    pub body_align: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Volume {
+    pub id: String,
+    pub title: String,
+    /// Empty object means "inherit the book style".
+    #[serde(default)]
+    pub style: VolumeStyle,
+    #[serde(default)]
+    pub opening_image: Option<String>,
+    #[serde(default)]
+    pub closing_image: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -72,6 +102,8 @@ pub struct EditableChapter {
     pub title: String,
     #[serde(default)]
     pub title_id: Option<String>,
+    #[serde(default)]
+    pub volume_id: Option<String>,
     pub html: String,
 }
 
@@ -88,6 +120,13 @@ pub fn import_book(path: &Path) -> Result<Project, String> {
     }
 }
 
+fn paragraphs_html(paragraphs: &[String]) -> String {
+    paragraphs
+        .iter()
+        .map(|p| format!("<p>{}</p>", escape_xml(p)))
+        .collect()
+}
+
 fn import_txt(path: &Path) -> Result<Project, String> {
     let text =
         fs::read_to_string(path).map_err(|e| format!("读取 TXT 失败（文件需要是 UTF-8）：{e}"))?;
@@ -97,9 +136,48 @@ fn import_txt(path: &Path) -> Result<Project, String> {
         .to_string_lossy()
         .into_owned();
     let book = txt2epub::parse_book(&text, &title);
-    if book.chapters.iter().all(|c| c.paragraphs.is_empty()) {
+    if book.chapters.iter().all(|c| !matches!(c.kind, ChapterKind::Volume) && c.paragraphs.is_empty())
+    {
         return Err("TXT 文件没有正文".into());
     }
+    let mut volumes: Vec<Volume> = Vec::new();
+    let mut chapters: Vec<EditableChapter> = Vec::new();
+    let mut current_volume: Option<String> = None;
+    for chapter in book.chapters {
+        match chapter.kind {
+            ChapterKind::Volume => {
+                let id = format!("volume-{}", volumes.len() + 1);
+                volumes.push(Volume {
+                    id: id.clone(),
+                    title: chapter.title.clone(),
+                    style: VolumeStyle::default(),
+                    opening_image: None,
+                    closing_image: None,
+                });
+                current_volume = Some(id.clone());
+                // Text placed directly under a volume heading stays, as its opening chapter.
+                if !chapter.paragraphs.is_empty() {
+                    chapters.push(EditableChapter {
+                        id: format!("chapter-{}", chapters.len() + 1),
+                        title: chapter.title,
+                        title_id: None,
+                        volume_id: Some(id),
+                        html: paragraphs_html(&chapter.paragraphs),
+                    });
+                }
+            }
+            ChapterKind::Chapter => chapters.push(EditableChapter {
+                id: format!("chapter-{}", chapters.len() + 1),
+                title: chapter.title,
+                title_id: None,
+                volume_id: current_volume.clone(),
+                html: paragraphs_html(&chapter.paragraphs),
+            }),
+        }
+    }
+    // A volume heading without chapters would export an empty page; drop it and
+    // keep everything else untouched.
+    volumes.retain(|volume| chapters.iter().any(|chapter| chapter.volume_id.as_deref() == Some(volume.id.as_str())));
     Ok(Project {
         version: 1,
         title,
@@ -110,21 +188,8 @@ fn import_txt(path: &Path) -> Result<Project, String> {
         opening_image: None,
         closing_image: None,
         font_assets: Vec::new(),
-        chapters: book
-            .chapters
-            .into_iter()
-            .enumerate()
-            .map(|(i, c)| EditableChapter {
-                id: format!("chapter-{}", i + 1),
-                title: c.title,
-                title_id: None,
-                html: c
-                    .paragraphs
-                    .iter()
-                    .map(|p| format!("<p>{}</p>", escape_xml(p)))
-                    .collect(),
-            })
-            .collect(),
+        volumes,
+        chapters,
     })
 }
 
@@ -314,6 +379,58 @@ fn style_css(style: &BookStyle, fonts: &[EmbeddedFont]) -> String {
     )
 }
 
+fn resolve_style(base: &BookStyle, overrides: &VolumeStyle) -> BookStyle {
+    BookStyle {
+        title_font_family: overrides
+            .title_font_family
+            .clone()
+            .unwrap_or_else(|| base.title_font_family.clone()),
+        title_font_size: overrides.title_font_size.unwrap_or(base.title_font_size),
+        title_align: overrides
+            .title_align
+            .clone()
+            .unwrap_or_else(|| base.title_align.clone()),
+        body_font_family: overrides
+            .body_font_family
+            .clone()
+            .unwrap_or_else(|| base.body_font_family.clone()),
+        body_font_size: overrides.body_font_size.unwrap_or(base.body_font_size),
+        body_line_height: overrides.body_line_height.unwrap_or(base.body_line_height),
+        body_align: overrides
+            .body_align
+            .clone()
+            .unwrap_or_else(|| base.body_align.clone()),
+    }
+}
+
+/// Per-volume typography overrides, applied to a volume page and its chapters.
+fn volume_css(book: &Project) -> String {
+    let mut css = String::new();
+    for (index, volume) in book.volumes.iter().enumerate() {
+        let n = index + 1;
+        let style = resolve_style(&book.style, &volume.style);
+        css.push_str(&format!(
+            "body.volume-{n}{{font-family:{};font-size:{}px;line-height:{:.2};text-align:{}}}body.volume-{n} h1{{font-family:{};font-size:{}px;text-align:{}}}",
+            css_font(&style.body_font_family, &book.font_assets),
+            style.body_font_size.clamp(10, 48),
+            style.body_line_height.clamp(1.2, 3.0),
+            css_align(&style.body_align),
+            css_font(&style.title_font_family, &book.font_assets),
+            style.title_font_size.clamp(16, 72),
+            css_align(&style.title_align)
+        ));
+    }
+    css
+}
+
+fn chapter_volume_index(book: &Project, chapter: &EditableChapter) -> Option<usize> {
+    chapter.volume_id.as_ref().and_then(|id| {
+        book.volumes
+            .iter()
+            .position(|volume| &volume.id == id)
+    })
+}
+
 pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
     validate_project(book)?;
     let parent = path.parent().unwrap_or(Path::new("."));
@@ -323,12 +440,9 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
     let compressed = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     write_zip(&mut zip, "mimetype", b"application/epub+zip", stored)?;
     write_zip(&mut zip, "META-INF/container.xml", br#"<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#, compressed)?;
-    write_zip(
-        &mut zip,
-        "OEBPS/styles/book.css",
-        style_css(&book.style, &book.font_assets).as_bytes(),
-        compressed,
-    )?;
+    let mut css = style_css(&book.style, &book.font_assets);
+    css.push_str(&volume_css(book));
+    write_zip(&mut zip, "OEBPS/styles/book.css", css.as_bytes(), compressed)?;
     let mut assets = Vec::new();
     let cover_name = book
         .cover_image
@@ -360,9 +474,48 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
     }
     let mut spine = String::new();
     let mut links = String::new();
+    let mut open_volume: Option<usize> = None;
     for (index, chapter) in book.chapters.iter().enumerate() {
         let n = index + 1;
         let href = format!("text/chapter-{n}.xhtml");
+        let volume_index = chapter_volume_index(book, chapter);
+        if volume_index != open_volume {
+            if open_volume.is_some() {
+                links.push_str("</ol></li>");
+            }
+            open_volume = volume_index;
+            if let Some(vi) = volume_index {
+                let volume = &book.volumes[vi];
+                let vn = vi + 1;
+                let volume_href = format!("text/volume-{vn}.xhtml");
+                manifest.push_str(&format!(
+                    "<item id=\"volume-{vn}\" href=\"{volume_href}\" media-type=\"application/xhtml+xml\"/>"
+                ));
+                spine.push_str(&format!("<itemref idref=\"volume-{vn}\"/>"));
+                let mut body = format!("<h1>{}</h1>", escape_xml(&volume.title));
+                if let Some(image) = &volume.opening_image {
+                    let name = add_image(image, &mut assets)?;
+                    body.push_str(&format!("<figure class=\"chapter-image\"><img src=\"../images/{name}\" alt=\"卷首图片\" /></figure>"));
+                }
+                let document = xhtml(
+                    &volume.title,
+                    &body,
+                    Some("../styles/book.css"),
+                    Some(&format!("volume-{vn}")),
+                );
+                write_zip(
+                    &mut zip,
+                    &format!("OEBPS/{volume_href}"),
+                    document.as_bytes(),
+                    compressed,
+                )?;
+                links.push_str(&format!(
+                    "<li><a href=\"{volume_href}\">{}</a><ol>",
+                    escape_xml(&volume.title)
+                ));
+            }
+        }
+        let volume_class = volume_index.map(|vi| format!("volume-{}", vi + 1));
         manifest.push_str(&format!(
             "<item id=\"chapter-{n}\" href=\"{href}\" media-type=\"application/xhtml+xml\"/>"
         ));
@@ -386,13 +539,34 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
             let name = add_image(image, &mut assets)?;
             body.push_str(&format!("<figure class=\"chapter-image\"><img src=\"../images/{name}\" alt=\"章节末尾图片\" /></figure>"));
         }
-        let document = xhtml(&chapter.title, &body, Some("../styles/book.css"));
+        // A volume's closing image belongs after the last chapter of that volume.
+        if let Some(vi) = volume_index {
+            let next_volume = book
+                .chapters
+                .get(index + 1)
+                .and_then(|next| chapter_volume_index(book, next));
+            if next_volume != Some(vi)
+                && let Some(image) = &book.volumes[vi].closing_image
+            {
+                let name = add_image(image, &mut assets)?;
+                body.push_str(&format!("<figure class=\"chapter-image\"><img src=\"../images/{name}\" alt=\"卷尾图片\" /></figure>"));
+            }
+        }
+        let document = xhtml(
+            &chapter.title,
+            &body,
+            Some("../styles/book.css"),
+            volume_class.as_deref(),
+        );
         write_zip(
             &mut zip,
             &format!("OEBPS/{href}"),
             document.as_bytes(),
             compressed,
         )?;
+    }
+    if open_volume.is_some() {
+        links.push_str("</ol></li>");
     }
     for (index, asset) in assets.iter().enumerate() {
         let properties = if cover_name.as_deref() == Some(&asset.name) {
@@ -417,7 +591,7 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
     write_zip(
         &mut zip,
         "OEBPS/nav.xhtml",
-        xhtml("目录", &nav, Some("styles/book.css")).as_bytes(),
+        xhtml("目录", &nav, Some("styles/book.css"), None).as_bytes(),
         compressed,
     )?;
     let modified = OffsetDateTime::now_utc()
@@ -450,12 +624,15 @@ fn write_zip<W: Write + Seek>(
     zip.write_all(bytes).map_err(|e| e.to_string())
 }
 
-fn xhtml(title: &str, body: &str, css: Option<&str>) -> String {
+fn xhtml(title: &str, body: &str, css: Option<&str>, body_class: Option<&str>) -> String {
     let stylesheet = css
         .map(|path| format!("<link rel=\"stylesheet\" type=\"text/css\" href=\"{path}\"/>"))
         .unwrap_or_default();
+    let class = body_class
+        .map(|value| format!(" class=\"{}\"", escape_xml(value)))
+        .unwrap_or_default();
     format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\"><head><title>{}</title>{stylesheet}</head><body>{body}</body></html>",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\"><head><title>{}</title>{stylesheet}</head><body{class}>{body}</body></html>",
         escape_xml(title)
     )
 }
@@ -669,6 +846,7 @@ fn import_epub(path: &Path) -> Result<Project, String> {
                 id: format!("chapter-{}", index + 1),
                 title: draft.title,
                 title_id: draft.title_id,
+                volume_id: None,
                 html: draft.html,
             }
         })
@@ -683,6 +861,7 @@ fn import_epub(path: &Path) -> Result<Project, String> {
         opening_image: None,
         closing_image: None,
         font_assets: Vec::new(),
+        volumes: Vec::new(),
         chapters,
     })
 }

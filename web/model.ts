@@ -8,10 +8,30 @@ export interface BookStyle {
   bodyAlign: string
 }
 
+export interface VolumeStyle {
+  titleFontFamily?: string
+  titleFontSize?: number
+  titleAlign?: string
+  bodyFontFamily?: string
+  bodyFontSize?: number
+  bodyLineHeight?: number
+  bodyAlign?: string
+}
+
+export interface Volume {
+  id: string
+  title: string
+  /** Per-volume overrides; an empty object inherits the book style. */
+  style: VolumeStyle
+  openingImage: string | null
+  closingImage: string | null
+}
+
 export interface EditableChapter {
   id: string
   title: string
   titleId?: string | null
+  volumeId?: string | null
   html: string
 }
 
@@ -25,6 +45,7 @@ export interface Project {
   openingImage: string | null
   closingImage: string | null
   fontAssets: EmbeddedFont[]
+  volumes: Volume[]
   chapters: EditableChapter[]
 }
 
@@ -60,8 +81,62 @@ export function createEmptyProject(): Project {
     openingImage: null,
     closingImage: null,
     fontAssets: [],
+    volumes: [],
     chapters: [{ id: crypto.randomUUID(), title: '第一章', html: '<p></p>' }],
   }
+}
+
+export function createVolume(index: number): Volume {
+  return { id: crypto.randomUUID(), title: `第${index}卷`, style: {}, openingImage: null, closingImage: null }
+}
+
+export function volumeOverrideCount(style: VolumeStyle): number {
+  return Object.values(style).filter(value => value !== undefined && value !== null && value !== '').length
+}
+
+/** Resolves a volume's typography on top of the book-wide style. */
+export function resolveStyle(base: BookStyle, overrides: VolumeStyle = {}): BookStyle {
+  return {
+    titleFontFamily: overrides.titleFontFamily ?? base.titleFontFamily,
+    titleFontSize: overrides.titleFontSize ?? base.titleFontSize,
+    titleAlign: overrides.titleAlign ?? base.titleAlign,
+    bodyFontFamily: overrides.bodyFontFamily ?? base.bodyFontFamily,
+    bodyFontSize: overrides.bodyFontSize ?? base.bodyFontSize,
+    bodyLineHeight: overrides.bodyLineHeight ?? base.bodyLineHeight,
+    bodyAlign: overrides.bodyAlign ?? base.bodyAlign,
+  }
+}
+
+export function chapterVolume(book: Pick<Project, 'volumes'>, chapter: Pick<EditableChapter, 'volumeId'>): Volume | undefined {
+  return chapter.volumeId ? book.volumes.find(volume => volume.id === chapter.volumeId) : undefined
+}
+
+export function chapterStyle(book: Project, chapter: EditableChapter): BookStyle {
+  const volume = chapterVolume(book, chapter)
+  return volume ? resolveStyle(book.style, volume.style) : book.style
+}
+
+export interface ChapterGroup {
+  volume?: Volume
+  chapters: EditableChapter[]
+}
+
+/**
+ * Groups consecutive chapters by volume so the sidebar and preview can render
+ * volume headings. Volumes without chapters are appended as empty groups.
+ */
+export function chapterGroups(chapters: EditableChapter[], volumes: Volume[]): ChapterGroup[] {
+  const groups: ChapterGroup[] = []
+  for (const chapter of chapters) {
+    const volume = chapterVolume({ volumes }, chapter)
+    const last = groups[groups.length - 1]
+    if (last && last.volume?.id === volume?.id) last.chapters.push(chapter)
+    else groups.push({ volume, chapters: [chapter] })
+  }
+  for (const volume of volumes) {
+    if (!groups.some(group => group.volume?.id === volume.id)) groups.push({ volume, chapters: [] })
+  }
+  return groups
 }
 
 export function previewStyles(style: BookStyle): Record<string, string> {

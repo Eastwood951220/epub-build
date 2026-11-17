@@ -194,3 +194,94 @@ fn epub_import_splits_headings_and_keeps_internal_links() {
         .unwrap();
     assert!(chapter.contains("<h1 id=\"two\">Two</h1>"));
 }
+
+#[test]
+fn txt_import_keeps_one_paragraph_per_line() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(&input, "第一章 开始\n第一段。\n第二段。\n第三段。").unwrap();
+    let project = import_book(&input).unwrap();
+    assert_eq!(project.chapters.len(), 1);
+    assert_eq!(
+        project.chapters[0].html,
+        "<p>第一段。</p><p>第二段。</p><p>第三段。</p>"
+    );
+}
+
+#[test]
+fn volumes_get_their_own_pages_styles_and_images() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(
+        &input,
+        "第一卷 少年\n第一章 开始\n正文一。\n第二章 继续\n正文二。\n第二卷 远方\n第三章 远行\n正文三。",
+    )
+    .unwrap();
+    let mut project = import_book(&input).unwrap();
+    assert_eq!(project.volumes.len(), 2);
+    assert_eq!(project.chapters.len(), 3);
+    assert_eq!(
+        project.chapters[0].volume_id.as_deref(),
+        Some(project.volumes[0].id.as_str())
+    );
+    assert_eq!(
+        project.chapters[1].volume_id.as_deref(),
+        Some(project.volumes[0].id.as_str())
+    );
+    assert_eq!(
+        project.chapters[2].volume_id.as_deref(),
+        Some(project.volumes[1].id.as_str())
+    );
+    project.volumes[1].style.body_font_size = Some(24);
+    project.volumes[1].opening_image = Some("data:image/png;base64,iVBORw0KGgo=".into());
+    project.volumes[0].closing_image = Some("data:image/png;base64,iVBORw0KGgo=".into());
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+
+    let mut archive = ZipArchive::new(fs::File::open(&epub).unwrap()).unwrap();
+    let mut volume = String::new();
+    archive
+        .by_name("OEBPS/text/volume-2.xhtml")
+        .unwrap()
+        .read_to_string(&mut volume)
+        .unwrap();
+    assert!(volume.contains("第二卷 远方"));
+    assert!(volume.contains("class=\"volume-2\""));
+    assert!(volume.contains("../images/image-"));
+    assert!(!volume.contains("data:image"));
+
+    let mut chapter = String::new();
+    archive
+        .by_name("OEBPS/text/chapter-3.xhtml")
+        .unwrap()
+        .read_to_string(&mut chapter)
+        .unwrap();
+    assert!(chapter.contains("class=\"volume-2\""));
+
+    let mut second = String::new();
+    archive
+        .by_name("OEBPS/text/chapter-2.xhtml")
+        .unwrap()
+        .read_to_string(&mut second)
+        .unwrap();
+    assert!(second.contains("卷尾图片"));
+
+    let mut css = String::new();
+    archive
+        .by_name("OEBPS/styles/book.css")
+        .unwrap()
+        .read_to_string(&mut css)
+        .unwrap();
+    assert!(css.contains("body.volume-2{"));
+    assert!(css.contains("font-size:24px"));
+
+    let mut nav = String::new();
+    archive
+        .by_name("OEBPS/nav.xhtml")
+        .unwrap()
+        .read_to_string(&mut nav)
+        .unwrap();
+    assert!(nav.contains("text/volume-1.xhtml"));
+    assert!(nav.contains("<ol>"));
+    roxmltree::Document::parse(&nav).unwrap();
+}

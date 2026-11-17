@@ -2,10 +2,19 @@ use std::io::{Cursor, Write};
 use time::{OffsetDateTime, macros::format_description};
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChapterKind {
+    /// 卷/部/篇: a grouping heading that contains chapters.
+    Volume,
+    /// 章/节/回: a normal chapter.
+    Chapter,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Chapter {
     pub title: String,
     pub paragraphs: Vec<String>,
+    pub kind: ChapterKind,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -19,36 +28,65 @@ pub fn parse_book(text: &str, title: &str) -> Book {
     let mut current = Chapter {
         title: "前言".into(),
         paragraphs: Vec::new(),
+        kind: ChapterKind::Chapter,
     };
     let mut paragraph = String::new();
-    for line in text.trim_start_matches('\u{feff}').lines() {
-        let line = line.trim();
+    let normalized = text
+        .trim_start_matches('\u{feff}')
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
+    for raw in normalized.lines() {
+        let line = raw.trim();
         if line.is_empty() {
             flush_paragraph(&mut current, &mut paragraph);
+            continue;
+        }
+        // A heading only starts at a paragraph boundary. Otherwise the line is a
+        // hard-wrapped continuation that merely happens to begin with 第…
+        let boundary = paragraph.is_empty() || ends_paragraph(&paragraph);
+        let kind = if !boundary {
+            None
+        } else if is_volume_heading(line) {
+            Some(ChapterKind::Volume)
         } else if is_chapter_heading(line) {
+            Some(ChapterKind::Chapter)
+        } else {
+            None
+        };
+        if let Some(kind) = kind {
             flush_paragraph(&mut current, &mut paragraph);
-            if !current.paragraphs.is_empty() {
+            // Keep an empty volume heading: it groups the chapters that follow.
+            if !current.paragraphs.is_empty() || current.kind == ChapterKind::Volume {
                 chapters.push(current);
             }
             current = Chapter {
                 title: line.to_string(),
                 paragraphs: Vec::new(),
+                kind,
             };
-        } else {
-            if !paragraph.is_empty()
-                && paragraph
-                    .chars()
-                    .last()
-                    .is_some_and(|c| c.is_ascii_alphanumeric())
-                && line
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_alphanumeric())
-            {
-                paragraph.push(' ');
-            }
-            paragraph.push_str(line);
+            continue;
         }
+        if paragraph.is_empty() {
+            paragraph.push_str(line);
+            continue;
+        }
+        if ends_paragraph(&paragraph) {
+            flush_paragraph(&mut current, &mut paragraph);
+            paragraph.push_str(line);
+            continue;
+        }
+        if paragraph
+            .chars()
+            .last()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+            && line
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphanumeric())
+        {
+            paragraph.push(' ');
+        }
+        paragraph.push_str(line);
     }
     flush_paragraph(&mut current, &mut paragraph);
     if !current.paragraphs.is_empty() || chapters.is_empty() {
@@ -63,6 +101,21 @@ pub fn parse_book(text: &str, title: &str) -> Book {
     }
 }
 
+/// Characters that finish a paragraph. A line ending with one of these starts a
+/// new paragraph on the next line; any other ending means the line was wrapped
+/// at a fixed width and the next line continues it.
+const PARAGRAPH_END: &str =
+    "。！？!?…～：:“”‘’\"'「」『』（）()【】《》〈〉";
+const CHINESE_NUMERALS: &str = "零〇一二三四五六七八九十百千万两";
+const VOLUME_UNITS: &str = "卷部篇";
+const CHAPTER_UNITS: &str = "章节回集";
+
+fn ends_paragraph(text: &str) -> bool {
+    text.chars()
+        .last()
+        .is_some_and(|c| PARAGRAPH_END.contains(c))
+}
+
 fn flush_paragraph(chapter: &mut Chapter, paragraph: &mut String) {
     if !paragraph.is_empty() {
         chapter.paragraphs.push(std::mem::take(paragraph));
@@ -70,18 +123,10 @@ fn flush_paragraph(chapter: &mut Chapter, paragraph: &mut String) {
 }
 
 fn is_chapter_heading(line: &str) -> bool {
-    if line.chars().count() > 80 {
-        return false;
+    if let Some(unit) = heading_unit(line) {
+        return CHAPTER_UNITS.contains(unit);
     }
-    if let Some(rest) = line.strip_prefix('第')
-        && let Some(pos) = rest.find(['章', '节', '回'])
-    {
-        return pos > 0
-            && pos <= 20
-            && rest[..pos]
-                .chars()
-                .all(|c| c.is_ascii_digit() || "零〇一二三四五六七八九十百千万两".contains(c));
-    }
+    let line = line.trim();
     let lower = line.to_ascii_lowercase();
     if let Some(rest) = lower.strip_prefix("chapter ") {
         let number = rest
@@ -94,7 +139,62 @@ fn is_chapter_heading(line: &str) -> bool {
                 .chars()
                 .all(|c| c.is_ascii_digit() || "ivxlcdm".contains(c));
     }
-    false
+    matches!(
+        line,
+        "序章" | "楔子" | "引子" | "尾声" | "后记" | "番外" | "终章"
+    )
+}
+
+fn is_volume_heading(line: &str) -> bool {
+    heading_unit(line).is_some_and(|unit| VOLUME_UNITS.contains(unit))
+}
+
+/// Parses `第<number><unit>…` headings and returns the unit character.
+/// Rejects body sentences that merely begin like a heading.
+fn heading_unit(line: &str) -> Option<char> {
+    let line = line.trim();
+    let length = line.chars().count();
+    if line.is_empty() || length > 40 {
+        return None;
+    }
+    // Body sentences end with punctuation; headings do not.
+    if line.ends_with(['。', '；', ';', '，', ',', '、']) {
+        return None;
+    }
+    let rest = line.strip_prefix('第')?;
+    let number: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || CHINESE_NUMERALS.contains(*c))
+        .collect();
+    if number.is_empty() {
+        return None;
+    }
+    let after = &rest[number.len()..];
+    let unit = after.chars().next()?;
+    if !CHAPTER_UNITS.contains(unit) && !VOLUME_UNITS.contains(unit) {
+        return None;
+    }
+    let tail = &after[unit.len_utf8()..];
+    if tail.trim_start().starts_with(['“', '「', '『', '"']) {
+        // Narrated or quoted chapter numbers ("第1章 “便是…") are body text.
+        return None;
+    }
+    if tail.is_empty() {
+        return Some(unit);
+    }
+    let separated = tail
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_whitespace() || "、，,：:·•.-—–~～「『【(《<".contains(c));
+    if separated {
+        return Some(unit);
+    }
+    // "第一章开始" style headings keep the number and a very short tail.
+    let tail_length = tail.chars().count();
+    if tail_length <= 12 && !tail.chars().any(|c| "，。！？；：、,.!?;:".contains(c)) {
+        return Some(unit);
+    }
+    None
 }
 
 pub fn build_epub(book: &Book, author: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
