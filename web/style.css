@@ -218,3 +218,5 @@
 .ci-option span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ci-group-title{padding:6px 6px 3px;font-size:10px;font-weight:750;letter-spacing:.04em;color:#95aaa5}
 .ci-empty{margin:0;padding:6px 2px;font-size:11px;color:#8aa199}
+
+.preview-content img{display:block;margin:1.2em auto}

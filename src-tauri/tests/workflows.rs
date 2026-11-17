@@ -526,3 +526,39 @@ fn legacy_opening_image_migrates_into_chapter_images() {
         .unwrap();
     assert!(chapter.contains("章节标题下方图片"));
 }
+
+#[test]
+fn body_images_export_as_centered_blocks() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(&input, "第一章 开始\n正文。").unwrap();
+    let mut project = import_book(&input).unwrap();
+    project.chapters[0]
+        .html
+        .push_str("<img src=\"data:image/png;base64,iVBORw0KGgo=\" alt=\"插图\" />");
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(&epub).unwrap()).unwrap();
+    let mut css = String::new();
+    archive
+        .by_name("OEBPS/styles/book.css")
+        .unwrap()
+        .read_to_string(&mut css)
+        .unwrap();
+    assert!(
+        css.contains("img{display:block;margin:1.2em auto;max-width:100%;height:auto}"),
+        "body images must be block level so auto margins center them in Apple Books"
+    );
+    assert!(
+        css.contains(".chapter-image img{margin:0 auto}"),
+        "chapter title images must stay centered once images are block level"
+    );
+    let mut chapter = String::new();
+    archive
+        .by_name("OEBPS/text/chapter-1.xhtml")
+        .unwrap()
+        .read_to_string(&mut chapter)
+        .unwrap();
+    assert!(chapter.contains("<img src=\"../images/image-1.png\" alt=\"插图\" />"));
+    roxmltree::Document::parse(&chapter).unwrap();
+}

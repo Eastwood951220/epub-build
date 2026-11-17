@@ -636,7 +636,7 @@ fn style_css(style: &BookStyle, fonts: &[EmbeddedFont]) -> String {
         }
     }
     let mut css = format!(
-        "{faces}body{{font-family:{};font-size:{}px;line-height:{:.2};text-align:{};margin:0 auto;max-width:42em;padding:1.5em;color:#20302e}}h1{{font-family:{};font-size:{}px;text-align:{};line-height:1.35;margin:1.2em 0}}p{{margin:0 0 .9em{}}}img{{max-width:100%;height:auto}}.chapter-image{{text-align:center;margin:1.5em 0}}",
+        "{faces}body{{font-family:{};font-size:{}px;line-height:{:.2};text-align:{};margin:0 auto;max-width:42em;padding:1.5em;color:#20302e}}h1{{font-family:{};font-size:{}px;text-align:{};line-height:1.35;margin:1.2em 0}}p{{margin:0 0 .9em{}}}img{{display:block;margin:1.2em auto;max-width:100%;height:auto}}.chapter-image{{text-align:center;margin:1.5em 0}}.chapter-image img{{margin:0 auto}}",
         css_font(&style.body_font_family, fonts),
         style.body_font_size.clamp(10, 48),
         style.body_line_height.clamp(1.2, 3.0),
