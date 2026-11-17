@@ -75,7 +75,7 @@ export default function App() {
 
   useEffect(() => {
     const chapter = bookRef.current.chapters.find(item => item.id === selectedId)
-    if (editor && chapter && editor.getHTML() !== chapter.html) editor.commands.setContent(chapter.html, { emitUpdate: false })
+    if (editor && !editor.isDestroyed && chapter && editor.getHTML() !== chapter.html) editor.commands.setContent(chapter.html, { emitUpdate: false })
   }, [selectedId, editor])
 
   function scrollEditorToTop() {
@@ -132,7 +132,7 @@ export default function App() {
 
   function replaceBook(next: Project, id: number, message: string) {
     next = { ...next, coverImage: next.coverImage ?? null, fontAssets: next.fontAssets ?? [] }
-    editor?.commands.setContent(next.chapters[0].html, { emitUpdate: false })
+    if (editor && !editor.isDestroyed) editor.commands.setContent(next.chapters[0].html, { emitUpdate: false })
     setBook(next)
     setSelectedId(next.chapters[0].id)
     setWorkspaceId(id)
@@ -181,7 +181,7 @@ export default function App() {
     setDirty(true)
     const current = next.chapters.find(chapter => chapter.id === selectedId) ?? next.chapters[0]
     setSelectedId(current.id)
-    if (editor && editor.getHTML() !== current.html) editor.commands.setContent(current.html, { emitUpdate: false })
+    if (editor && !editor.isDestroyed && editor.getHTML() !== current.html) editor.commands.setContent(current.html, { emitUpdate: false })
     setReview(null)
     setError('')
     setView('edit')
@@ -402,7 +402,7 @@ export default function App() {
     const next = reindexChapterLinks(book.chapters, chapters)
     updateBook(previous => ({ ...previous, chapters: next }))
     const current = next.find(chapter => chapter.id === selectedId)
-    if (current && editor?.getHTML() !== current.html) editor?.commands.setContent(current.html, { emitUpdate: false })
+    if (current && editor && !editor.isDestroyed && editor.getHTML() !== current.html) editor.commands.setContent(current.html, { emitUpdate: false })
   }
 
   function handlePreviewClick(event: MouseEvent<HTMLDivElement>) {
