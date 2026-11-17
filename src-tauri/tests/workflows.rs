@@ -562,3 +562,24 @@ fn body_images_export_as_centered_blocks() {
     assert!(chapter.contains("<img src=\"../images/image-1.png\" alt=\"插图\" />"));
     roxmltree::Document::parse(&chapter).unwrap();
 }
+
+#[test]
+fn selected_text_colour_survives_export() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(&input, "第一章 开始\n正文。").unwrap();
+    let mut project = import_book(&input).unwrap();
+    project.chapters[0].html =
+        "<p>普通文字<span style=\"color: rgb(220, 38, 38);\">红色文字</span></p>".into();
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(&epub).unwrap()).unwrap();
+    let mut chapter = String::new();
+    archive
+        .by_name("OEBPS/text/chapter-1.xhtml")
+        .unwrap()
+        .read_to_string(&mut chapter)
+        .unwrap();
+    assert!(chapter.contains("<span style=\"color: rgb(220, 38, 38);\">红色文字</span>"));
+    roxmltree::Document::parse(&chapter).unwrap();
+}
