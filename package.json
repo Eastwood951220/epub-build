@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:app": "tauri dev",
     "build": "tsc -b && vite build",
+    "package:mac": "tauri build --bundles dmg",
+    "package:win": "tauri build --bundles nsis",
     "test": "vitest run",
     "tauri": "tauri"
   },

@@ -8,14 +8,14 @@
 
 ```bash
 npm ci
-npm run tauri -- dev
+npm run dev:app
 ```
 
 生成本机安装包：
 
 ```bash
-npm run tauri -- build --bundles dmg   # macOS
-npm run tauri -- build --bundles nsis  # Windows
+npm run package:mac  # macOS
+npm run package:win  # Windows
 ```
 
 成品位于 `src-tauri/target/release/bundle/`。仓库中的 GitHub Actions 工作流也会分别构建 macOS DMG 和 Windows NSIS 安装包。
