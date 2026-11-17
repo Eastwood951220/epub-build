@@ -4,41 +4,39 @@ import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
 import TextAlign from '@tiptap/extension-text-align'
 import { TextStyleKit } from '@tiptap/extension-text-style'
-import { invoke } from '@tauri-apps/api/core'
+import { backend, type AssetData, type AssetKind, type AssetSummary, type WorkspaceSummary } from './platform/backend'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import {
-  AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, BookOpen, ChevronDown,
-  ChevronUp, Download, FolderOpen, ImagePlus, Italic, List,
-  ListOrdered, ListTree, Layers, Settings2, Plus, Redo2, Save, Trash2, Undo2,
-  LibraryBig, House, Search, MessageSquareText, Eye, EyeOff,
+  BookOpen, ChevronDown, ChevronUp, Download, FolderOpen, House, ImagePlus,
+  Layers, LibraryBig, ListTree, Plus, Save, Search, Settings2, Trash2,
 } from 'lucide-react'
 import {
   chapterGroups, chapterImagesAt, chapterStyle, chapterVolume, createChapterImage, createEmptyProject, createVolume, fontChoices,
   previewStyles, reindexChapterLinks, type BookStyle, type EditableChapter, type Project, type Volume,
-} from './model'
-import { PreserveIds } from './PreserveIds'
-import { NoteMarker } from './NoteMarker'
-import { orderedNotes } from './notes'
-import ChapterReview from './ChapterReview'
-import FindReplace from './FindReplaceDialog'
-import type { FindReplaceResult } from './findReplace'
-import { AUTOSAVE_INTERVAL_MS, shouldAutosave } from './autosave'
-import { imageLinkUrls, replaceImageLinks } from './imageLinks'
-import VolumeSettings from './VolumeSettings'
-import ChapterImagesSettings from './ChapterImagesSettings'
-import LibraryPanel, { type AssetData, type AssetKind, type AssetSummary } from './LibraryPanel'
-import Home, { type WorkspaceSummary } from './Home'
-import HeadingTitle from './HeadingTitle'
-import HeadingStyleControls, { type HeadingStyleKey } from './HeadingStyleControls'
-import TextColorControl from './TextColorControl'
-import ChapterSidebarList from './ChapterSidebarList'
-import BookPreview from './BookPreview'
-import { clampPanelWidth } from './editorLayout'
-import { startWindowDrag } from './windowDrag'
-import { scanImageBatch } from './chapterImageScan'
-import { createSaveQueue } from './saveQueue'
-import type { HeadingLineStyle } from './model'
+} from './book/model'
+import { PreserveIds } from './chapters/PreserveIds'
+import { NoteMarker } from './chapters/NoteMarker'
+import { orderedNotes } from './chapters/notes'
+import ChapterReview from './chapters/ChapterReview'
+import FindReplace from './chapters/FindReplaceDialog'
+import type { FindReplaceResult } from './chapters/findReplace'
+import { AUTOSAVE_INTERVAL_MS, shouldAutosave } from './editor/autosave'
+import { imageLinkUrls, replaceImageLinks } from './editor/imageLinks'
+import VolumeSettings from './settings/VolumeSettings'
+import ChapterImagesSettings from './settings/ChapterImagesSettings'
+import LibraryPanel from './library/LibraryPanel'
+import Home from './library/Home'
+import HeadingTitle from './chapters/HeadingTitle'
+import HeadingStyleControls, { type HeadingStyleKey } from './settings/HeadingStyleControls'
+import EditorToolbar from './editor/EditorToolbar'
+import ChapterSidebarList from './chapters/ChapterSidebarList'
+import BookPreview from './preview/BookPreview'
+import { clampPanelWidth } from './editor/editorLayout'
+import { startWindowDrag } from './platform/windowDrag'
+import { scanImageBatch } from './editor/chapterImageScan'
+import { createSaveQueue } from './editor/saveQueue'
+import type { HeadingLineStyle } from './book/model'
 
 type View = 'edit' | 'preview'
 interface ReviewState { mode: 'import' | 'manage'; book: Project; sourcePath?: string }
@@ -197,7 +195,7 @@ export default function App() {
   }, [settingsTab])
 
   useEffect(() => {
-    void invoke<WorkspaceSummary[]>('list_workspaces').then(setWorkspaces).catch(cause => setError(errorMessage(cause)))
+    void backend.listWorkspaces().then(setWorkspaces).catch(cause => setError(errorMessage(cause)))
   }, [])
 
   const assets = assetsByKind[assetKind]
@@ -294,7 +292,7 @@ export default function App() {
     }
     if (review.mode === 'import') {
       await withBusy(async () => {
-        const created = await invoke<WorkspaceSummary>('create_workspace', { book: next })
+        const created = await backend.createWorkspace(next)
         replaceBook(next, created.id, `已导入 ${next.chapters.length} 个章节并创建工程`)
         setReview(null)
       })
@@ -346,7 +344,7 @@ export default function App() {
     const path = await open({ multiple: false, filters: imageFilters })
     if (typeof path !== 'string') return null
     try {
-      return await invoke<string>('read_image', { path })
+      return await backend.readImage(path)
     } catch (cause) {
       setError(errorMessage(cause))
       return null
@@ -358,7 +356,7 @@ export default function App() {
     const path = await open({ multiple: false, filters: [{ name: '图书', extensions: ['txt', 'epub'] }] })
     if (typeof path !== 'string') return
     await withBusy(async () => {
-      const next = await invoke<Project>('import_book', { path })
+      const next = await backend.importBook(path)
       openReview('import', next, path.toLowerCase().endsWith('.txt') ? path : undefined)
       setNotice(`已识别 ${next.chapters.length} 个章节，核对后确认导入`)
     })
@@ -369,8 +367,8 @@ export default function App() {
     const path = await open({ multiple: false, filters: [{ name: 'EPUB Studio 项目', extensions: ['json'] }] })
     if (typeof path !== 'string') return
     await withBusy(async () => {
-      const next = await invoke<Project>('load_project', { path })
-      const created = await invoke<WorkspaceSummary>('create_workspace', { book: next })
+      const next = await backend.loadProject(path)
+      const created = await backend.createWorkspace(next)
       replaceBook(next, created.id, '项目文件已导入为新工程')
     })
   }
@@ -379,7 +377,7 @@ export default function App() {
     if (workspaceId === null) return
     await withBusy(async () => {
       const snapshot = bookRef.current
-      await saveQueueRef.current(() => invoke('save_workspace', { id: workspaceId, book: snapshot }))
+      await saveQueueRef.current(() => backend.saveWorkspace(workspaceId, snapshot))
       if (bookRef.current === snapshot) setDirty(false)
       setNotice('工程已保存')
     })
@@ -389,7 +387,7 @@ export default function App() {
     const path = await save({ defaultPath: `${safeName(book.title)}.epubstudio.json`, filters: [{ name: 'EPUB Studio 项目', extensions: ['json'] }] })
     if (!path) return
     await withBusy(async () => {
-      await invoke('save_project', { path, book })
+      await backend.saveProject(path, book)
       setNotice(`项目文件已导出：${path}`)
     })
   }
@@ -400,20 +398,20 @@ export default function App() {
       next.title = details.title.trim()
       next.author = details.author.trim() || '未知作者'
       next.language = details.language.trim() || 'zh-CN'
-      const created = await invoke<WorkspaceSummary>('create_workspace', { book: next })
+      const created = await backend.createWorkspace(next)
       replaceBook(next, created.id, '工程已创建')
     })
   }
 
   async function openWorkspace(id: number) {
     if (!canReplace()) return
-    await withBusy(async () => replaceBook(await invoke<Project>('load_workspace', { id }), id, '工程已打开'))
+    await withBusy(async () => replaceBook(await backend.loadWorkspace(id), id, '工程已打开'))
   }
 
   async function deleteWorkspace(id: number) {
     await withBusy(async () => {
-      await invoke('delete_workspace', { id })
-      setWorkspaces(await invoke<WorkspaceSummary[]>('list_workspaces'))
+      await backend.deleteWorkspace(id)
+      setWorkspaces(await backend.listWorkspaces())
       setNotice('工程已删除')
     })
   }
@@ -421,7 +419,7 @@ export default function App() {
   async function goHome() {
     if (!canReplace()) return
     await withBusy(async () => {
-      setWorkspaces(await invoke<WorkspaceSummary[]>('list_workspaces'))
+      setWorkspaces(await backend.listWorkspaces())
       setScreen('home')
       setWorkspaceId(null)
       setDirty(false)
@@ -432,7 +430,7 @@ export default function App() {
     const path = await save({ defaultPath: `${safeName(book.title)}.epub`, filters: [{ name: 'EPUB 电子书', extensions: ['epub'] }] })
     if (!path) return
     await withBusy(async () => {
-      await invoke('export_epub', { path, book })
+      await backend.exportEpub(path, book)
       setNotice(`EPUB 已导出：${path}`)
     })
   }
@@ -441,7 +439,7 @@ export default function App() {
     const path = await open({ multiple: false, filters: imageFilters })
     if (typeof path !== 'string') return
     await withBusy(async () => {
-      const source = await invoke<string>('read_image', { path })
+      const source = await backend.readImage(path)
       if (target === 'inline') editor?.chain().focus().setImage({ src: source, alt: '章节插图' }).run()
       else updateBook(previous => ({ ...previous, coverImage: source }))
       setNotice('图片已添加')
@@ -455,8 +453,8 @@ export default function App() {
 
   async function loadLibraryAssets() {
     const [font, image] = await Promise.all([
-      invoke<AssetSummary[]>('list_assets', { kind: 'font' }),
-      invoke<AssetSummary[]>('list_assets', { kind: 'image' }),
+      backend.listAssets('font'),
+      backend.listAssets('image'),
     ])
     setAssetsByKind({ font, image })
   }
@@ -465,7 +463,7 @@ export default function App() {
     const path = await open({ multiple: false, filters: assetKind === 'font' ? fontFilters : imageFilters })
     if (typeof path !== 'string') return
     await withBusy(async () => {
-      await invoke<AssetSummary>('import_asset', { path, kind: assetKind })
+      await backend.importAsset(path, assetKind)
       await loadLibraryAssets()
       setNotice(`${assetKind === 'font' ? '字体' : '图片'}已导入资源库`)
     })
@@ -473,7 +471,7 @@ export default function App() {
 
   async function useFont(asset: AssetSummary, target: 'title' | 'body' | 'selection') {
     await withBusy(async () => {
-      const data = await invoke<AssetData>('get_asset', { id: asset.id })
+      const data = await backend.getAsset(asset.id)
       const family = `EPUBStudioFont${asset.id}`
       updateBook(previous => ({
         ...previous,
@@ -487,7 +485,7 @@ export default function App() {
 
   async function useLibraryImage(asset: AssetSummary, target: 'coverImage' | 'chapterImage' | 'inline') {
     await withBusy(async () => {
-      const data = await invoke<AssetData>('get_asset', { id: asset.id })
+      const data = await backend.getAsset(asset.id)
       if (target === 'inline') {
         if (view === 'preview') {
           pendingInlineImageRef.current = { chapterId: selectedIdRef.current, src: data.dataUri, alt: asset.name }
@@ -510,7 +508,7 @@ export default function App() {
   async function deleteLibraryAsset(asset: AssetSummary) {
     if (!window.confirm(`从资源库删除“${asset.name}”？已加入书稿的内容仍会保留。`)) return
     await withBusy(async () => {
-      await invoke('delete_asset', { id: asset.id })
+      await backend.deleteAsset(asset.id)
       if (previewAsset?.id === asset.id) setPreviewAsset(null)
       await loadLibraryAssets()
       setNotice('资源已从库中删除')
@@ -518,7 +516,7 @@ export default function App() {
   }
 
   async function showAssetPreview(asset: AssetSummary) {
-    await withBusy(async () => setPreviewAsset(await invoke<AssetData>('get_asset', { id: asset.id })))
+    await withBusy(async () => setPreviewAsset(await backend.getAsset(asset.id)))
   }
 
   function addChapter() {
@@ -617,7 +615,7 @@ export default function App() {
       if (!shouldAutosave({ attached: true, dirty: dirtyRef.current, busy: busyRef.current, saving: autosavingRef.current })) return
       const snapshot = bookRef.current
       autosavingRef.current = true
-      void saveQueueRef.current(() => invoke('save_workspace', { id: workspaceId, book: snapshot }))
+      void saveQueueRef.current(() => backend.saveWorkspace(workspaceId, snapshot))
         // 保存期间用户又改过稿：新的改动仍然算未保存，下一跳会再存一次。
         .then(() => { if (bookRef.current === snapshot) setDirty(false) })
         .catch(cause => setError(errorMessage(cause)))
@@ -678,7 +676,7 @@ export default function App() {
     sourcePath={review.sourcePath}
     onRedetect={async (chapterPattern, volumePattern) => {
       if (!review.sourcePath) throw new Error('未找到 TXT 源文件')
-      const next = await invoke<Project>('redetect_txt', { path: review.sourcePath, chapterPattern, volumePattern })
+      const next = await backend.redetectTxt(review.sourcePath, chapterPattern, volumePattern)
       setReview(previous => previous ? { ...previous, book: next } : previous)
       return next
     }}
@@ -705,7 +703,7 @@ export default function App() {
     try {
       for (let index = 0; index < urls.length; index += 6) {
         const batch = urls.slice(index, index + 6)
-        const results = await Promise.allSettled(batch.map(url => invoke<string>('download_image', { url })))
+        const results = await Promise.allSettled(batch.map(url => backend.downloadImage(url)))
         results.forEach((result, offset) => {
           if (result.status === 'fulfilled') downloaded.set(batch[offset], result.value)
           else failures += 1
@@ -791,16 +789,7 @@ export default function App() {
             {currentVolume && <button className="button subtle" onClick={() => setVolumeSettingsId(currentVolume.id)}><Settings2 size={15}/>卷设置</button>}
           </div>
           <div className="chapter-title-field"><label htmlFor="chapter-title">章节标题</label><input id="chapter-title" value={selectedChapter.title} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, title: event.target.value } : chapter) }))} /><select aria-label="章节标题排列" value={selectedChapter.titleLayout ?? 'stacked'} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, titleLayout: event.target.value as 'inline' | 'stacked' } : chapter) }))}><option value="stacked">分两行</option><option value="inline">同一行</option></select></div>
-          <div className="editor-toolbar" aria-label="文字格式工具栏">
-            <button title="撤销" aria-label="撤销" onClick={() => editor?.chain().focus().undo().run()}><Undo2 size={17}/></button><button title="重做" aria-label="重做" onClick={() => editor?.chain().focus().redo().run()}><Redo2 size={17}/></button><span className="toolbar-divider"/>
-            <select aria-label="段落样式" defaultValue="paragraph" onChange={event => { const value = event.target.value; if (value === 'paragraph') editor?.chain().focus().setParagraph().run(); else editor?.chain().focus().toggleHeading({ level: Number(value) as 1 | 2 | 3 }).run() }}><option value="paragraph">正文段落</option><option value="1">一级标题</option><option value="2">二级标题</option><option value="3">三级标题</option></select>
-            <button className="note-toolbar-button" title="在光标处插入备注" aria-label="在光标处插入备注" onClick={addNote}><MessageSquareText size={16}/>插入备注</button>
-            <select aria-label="所选文字字体" defaultValue="" onChange={event => { if (event.target.value) editor?.chain().focus().setFontFamily(event.target.value).run() }}><option value="">局部字体</option>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select>
-            <select aria-label="所选文字字号" defaultValue="" onChange={event => { if (event.target.value) editor?.chain().focus().setFontSize(`${event.target.value}px`).run() }}><option value="">字号</option>{[12, 14, 16, 18, 20, 24, 28, 32, 40].map(size => <option key={size} value={size}>{size}</option>)}</select>
-            <span className="toolbar-divider"/><button title="加粗" aria-label="加粗" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={17}/></button><button title="斜体" aria-label="斜体" onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={17}/></button><TextColorControl editor={editor}/>
-            <span className="toolbar-divider"/><button title="左对齐" aria-label="左对齐" onClick={() => editor?.chain().focus().setTextAlign('left').run()}><AlignLeft size={17}/></button><button title="居中" aria-label="居中" onClick={() => editor?.chain().focus().setTextAlign('center').run()}><AlignCenter size={17}/></button><button title="右对齐" aria-label="右对齐" onClick={() => editor?.chain().focus().setTextAlign('right').run()}><AlignRight size={17}/></button><button title="两端对齐" aria-label="两端对齐" onClick={() => editor?.chain().focus().setTextAlign('justify').run()}><AlignJustify size={17}/></button>
-            <span className="toolbar-divider"/><button title="无序列表" aria-label="无序列表" onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={17}/></button><button title="有序列表" aria-label="有序列表" onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={17}/></button><button title="在光标处插入图片" aria-label="在光标处插入图片" onClick={() => chooseImage('inline')}><ImagePlus size={18}/></button><button className="image-toggle-button" title={showEditorImages ? "隐藏编辑图片" : "显示编辑图片"} aria-label={showEditorImages ? "隐藏编辑图片" : "显示编辑图片"} aria-pressed={showEditorImages} onClick={() => setShowEditorImages(value => !value)}>{showEditorImages ? <EyeOff size={16}/> : <Eye size={16}/>}<span>{showEditorImages ? "隐藏图片" : "显示图片"}</span></button>
-          </div>
+          <EditorToolbar editor={editor} availableFonts={availableFonts} showEditorImages={showEditorImages} onAddNote={addNote} onChooseImage={() => void chooseImage('inline')} onToggleImages={() => setShowEditorImages(value => !value)}/>
           <div className={`editor-stage ${showEditorImages ? "" : "images-hidden"}`} aria-busy={chapterLoading}>
           <div className="editor-scroll" ref={editorScrollRef}><div className="paper edit-paper" style={selectedStyle}>{showEditorImages && chapterImagesAt(book, selectedChapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}<HeadingTitle title={selectedChapter.title || '未命名章节'} kind="chapter" layout={selectedChapter.titleLayout}/>{showEditorImages && chapterImagesAt(book, selectedChapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}<EditorContent editor={editor} className="chapter-editor" />{orderedNotes(selectedChapter).length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{orderedNotes(selectedChapter).map((note, index) => <div className="note-edit-row" key={note.id}><span>[{index + 1}]</span><textarea aria-label={`备注 ${index + 1}`} placeholder="输入备注内容" value={note.text} onChange={event => updateNote(note.id, event.target.value)}/><button title="删除备注" aria-label={`删除备注 ${index + 1}`} onClick={() => deleteNote(note.id)}><Trash2 size={16}/></button></div>)}</section>}</div></div>
           {chapterLoading && <div className="chapter-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>正在加载章节正文…</div>}

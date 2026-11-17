@@ -1,4 +1,4 @@
-import type { EditableChapter, Volume } from './model'
+import type { EditableChapter, Volume } from '../book/model'
 
 export interface FindReplaceOptions {
   find: string

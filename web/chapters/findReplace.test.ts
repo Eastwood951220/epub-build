@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { EditableChapter, Volume } from './model'
+import type { EditableChapter, Volume } from '../book/model'
 import { findReplace } from './findReplace'
 
 const chapters: EditableChapter[] = [

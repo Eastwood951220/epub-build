@@ -1,8 +1,7 @@
 import { Eye, Image as ImageIcon, Info, Plus, Trash2, Type, X } from 'lucide-react'
 
-export type AssetKind = 'font' | 'image'
-export interface AssetSummary { id: number; kind: AssetKind; name: string; mime: string; size: number }
-export interface AssetData { id: number; kind: AssetKind; name: string; mime: string; dataUri: string }
+import type { AssetData, AssetKind, AssetSummary } from '../platform/backend'
+export type { AssetData, AssetKind, AssetSummary } from '../platform/backend'
 
 type FontTarget = 'title' | 'body' | 'selection'
 type ImageTarget = 'coverImage' | 'chapterImage' | 'inline'

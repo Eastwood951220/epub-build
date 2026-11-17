@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ImagePlus, X } from 'lucide-react'
-import { chapterGroups, createChapterImage, type ChapterImage, type ChapterImagePlacement, type ChapterImageScope, type EditableChapter, type Volume } from './model'
+import { chapterGroups, createChapterImage, type ChapterImage, type ChapterImagePlacement, type ChapterImageScope, type EditableChapter, type Volume } from '../book/model'
 
 export interface ChapterImagesSettingsProps {
   entries: ChapterImage[]

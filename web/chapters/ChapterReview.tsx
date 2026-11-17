@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUpToLine, ChevronDown, ChevronUp, Layers, Trash2, X } from 'lucide-react'
-import { chapterGroups, type EditableChapter, type Project, type Volume } from './model'
+import { chapterGroups, type EditableChapter, type Project, type Volume } from '../book/model'
 import {
   blockCount,
   formatChapterTitle,

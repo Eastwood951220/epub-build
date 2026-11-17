@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { splitHeading } from './headings'
-import { createEmptyProject, previewStyles, resolveStyle } from './model'
+import { createEmptyProject, previewStyles, resolveStyle } from '../book/model'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement } from 'react'
 import HeadingTitle from './HeadingTitle'

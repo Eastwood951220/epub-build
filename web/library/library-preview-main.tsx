@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import LibraryPanel, { type AssetData, type AssetKind, type AssetSummary } from './LibraryPanel'
-import './style.css'
+import '../style.css'
 
 const fonts: AssetSummary[] = [
   { id: 1, kind: 'font', name: 'SourceHanSerifSC-Heavy.otf', mime: 'font/otf', size: 8_612_864 },

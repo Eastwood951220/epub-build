@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { ChevronDown, ChevronRight, ChevronUp, Layers, Pencil, Settings2, Trash2 } from 'lucide-react'
-import type { ChapterGroup, EditableChapter, Volume } from './model'
-import { visibleRows } from './editorLayout'
+import type { ChapterGroup, EditableChapter, Volume } from '../book/model'
+import { visibleRows } from '../editor/editorLayout'
 
 const ROW_HEIGHT = 46
 type Row = { kind: 'volume'; volume: Volume; count: number; collapsed: boolean; key: string }

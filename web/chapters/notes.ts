@@ -1,4 +1,4 @@
-import type { ChapterNote, EditableChapter } from './model'
+import type { ChapterNote, EditableChapter } from '../book/model'
 
 const markerPattern = /<span\b[^>]*\bdata-note-id="([^"]+)"[^>]*>[\s\S]*?<\/span>/g
 

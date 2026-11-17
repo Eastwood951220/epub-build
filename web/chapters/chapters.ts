@@ -1,4 +1,4 @@
-import type { EditableChapter, Volume } from './model'
+import type { EditableChapter, Volume } from '../book/model'
 
 const CHINESE_NUMERALS = '零〇一二三四五六七八九十百千万两'
 const CHAPTER_UNITS = '章节回卷部篇集'

@@ -1,5 +1,5 @@
 import { splitHeading, type HeadingKind } from './headings'
-import type { TitleLayout } from './model'
+import type { TitleLayout } from '../book/model'
 
 export default function HeadingTitle({ title, kind, id, layout = 'stacked' }: { title: string; kind: HeadingKind; id?: string | null; layout?: TitleLayout }) {
   const { number, name } = splitHeading(title, kind)

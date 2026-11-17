@@ -1,8 +1,8 @@
 import { Fragment, memo, useEffect, useState, type CSSProperties, type RefObject } from 'react'
 import DOMPurify from 'dompurify'
-import { chapterImagesAt, chapterStyle, previewStyles, resolveStyle, type ChapterGroup, type Project } from './model'
-import { orderedNotes, renderNoteMarkers } from './notes'
-import HeadingTitle from './HeadingTitle'
+import { chapterImagesAt, chapterStyle, previewStyles, resolveStyle, type ChapterGroup, type Project } from '../book/model'
+import { orderedNotes, renderNoteMarkers } from '../chapters/notes'
+import HeadingTitle from '../chapters/HeadingTitle'
 
 interface Props {
   book: Project

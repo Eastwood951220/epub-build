@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import ChapterSidebarList from './ChapterSidebarList'
-import { createEmptyProject } from './model'
+import { createEmptyProject } from '../book/model'
 
 describe('chapter sidebar', () => {
   it('keeps a thousand-chapter book to a small rendered window', () => {

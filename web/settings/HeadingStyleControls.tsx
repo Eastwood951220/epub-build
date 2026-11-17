@@ -1,4 +1,4 @@
-import type { BookStyle, HeadingLineStyle } from './model'
+import type { BookStyle, HeadingLineStyle } from '../book/model'
 
 export type HeadingStyleKey = 'chapterNumberStyle' | 'chapterNameStyle' | 'volumeNumberStyle' | 'volumeNameStyle'
 

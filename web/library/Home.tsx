@@ -1,22 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { backend, type AssetData, type AssetKind, type AssetSummary, type WorkspaceSummary } from '../platform/backend'
 import { open } from '@tauri-apps/plugin-dialog'
 import { BookOpen, FilePlus2, FolderOpen, Image as ImageIcon, Plus, Trash2, Type, X } from 'lucide-react'
-import { startWindowDrag } from './windowDrag'
+import { startWindowDrag } from '../platform/windowDrag'
 
-export interface WorkspaceSummary {
-  id: number
-  title: string
-  author: string
-  chapterCount: number
-  coverImage: string | null
-  updatedAt: string
-}
+export type { WorkspaceSummary } from '../platform/backend'
 
 type Tab = 'projects' | 'font' | 'image'
-type AssetKind = 'font' | 'image'
-interface AssetSummary { id: number; kind: AssetKind; name: string; mime: string; size: number }
-interface AssetData { id: number; kind: AssetKind; name: string; mime: string; dataUri: string }
 export interface NewWorkspaceDetails { title: string; author: string; language: string }
 interface Props {
   workspaces: WorkspaceSummary[]
@@ -45,7 +35,7 @@ function ImageThumbnail({ asset }: { asset: AssetSummary }) {
     const observer = new IntersectionObserver(entries => {
       if (!entries[0].isIntersecting) return
       observer.disconnect()
-      void invoke<AssetData>('get_asset', { id: asset.id }).then(data => setSource(data.dataUri)).catch(() => {})
+      void backend.getAsset(asset.id).then(data => setSource(data.dataUri)).catch(() => {})
     }, { rootMargin: '100px' })
     observer.observe(target)
     return () => observer.disconnect()
@@ -70,7 +60,7 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
     setPreview(null)
     setAssets([])
     setLibraryError('')
-    void invoke<AssetSummary[]>('list_assets', { kind })
+    void backend.listAssets(kind)
       .then(items => { if (active) setAssets(items) })
       .catch(cause => { if (active) setLibraryError(errorMessage(cause)) })
     return () => { active = false }
@@ -93,8 +83,8 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
     const path = await open({ multiple: false, filters: filters[kind] })
     if (typeof path !== 'string') return
     await withLibraryBusy(async () => {
-      await invoke('import_asset', { path, kind })
-      setAssets(await invoke<AssetSummary[]>('list_assets', { kind }))
+      await backend.importAsset(path, kind)
+      setAssets(await backend.listAssets(kind))
       setLibraryNotice('资源已导入公共库')
     })
   }
@@ -102,15 +92,15 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
   async function deleteAsset(asset: AssetSummary) {
     if (!window.confirm(`从公共资源库删除“${asset.name}”？已用于工程的资源仍会保留。`)) return
     await withLibraryBusy(async () => {
-      await invoke('delete_asset', { id: asset.id })
-      setAssets(await invoke<AssetSummary[]>('list_assets', { kind }))
+      await backend.deleteAsset(asset.id)
+      setAssets(await backend.listAssets(kind))
       if (preview?.id === asset.id) setPreview(null)
       setLibraryNotice('资源已删除')
     })
   }
 
   async function previewAsset(asset: AssetSummary) {
-    await withLibraryBusy(async () => setPreview(await invoke<AssetData>('get_asset', { id: asset.id })))
+    await withLibraryBusy(async () => setPreview(await backend.getAsset(asset.id)))
   }
 
   function create(event: FormEvent<HTMLFormElement>) {

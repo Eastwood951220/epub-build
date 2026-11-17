@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { chapterGroups, chapterImagesAt, chapterImagesFor, chapterImageApplies, chapterStyle, createChapterImage, createEmptyProject, previewStyles, reindexChapterLinks, resolveStyle } from './model'
-import { orderedNotes, renderNoteMarkers } from './notes'
+import { orderedNotes, renderNoteMarkers } from '../chapters/notes'
 
 describe('project model', () => {
   it('starts with an editable chapter', () => {

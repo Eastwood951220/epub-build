@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ImagePlus, X } from 'lucide-react'
-import { resolveStyle, volumeOverrideCount, type BookStyle, type Volume, type VolumeStyle } from './model'
+import { resolveStyle, volumeOverrideCount, type BookStyle, type Volume, type VolumeStyle } from '../book/model'
 
 export interface VolumeSettingsProps {
   volume: Volume

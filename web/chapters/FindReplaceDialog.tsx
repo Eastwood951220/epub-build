@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
-import type { EditableChapter, Volume } from './model'
+import type { EditableChapter, Volume } from '../book/model'
 import { findReplace, type FindReplaceOptions, type FindReplaceResult } from './findReplace'
 
 interface Props {

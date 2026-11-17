@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { EditableChapter } from './model'
+import type { EditableChapter } from '../book/model'
 import {
   arabicToChinese,
   chineseNumberToArabic,
