@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { BookOpen, FilePlus2, FolderOpen, Image as ImageIcon, Plus, Trash2, Type, X } from 'lucide-react'
+import { startWindowDrag } from './windowDrag'
 
 export interface WorkspaceSummary {
   id: number
@@ -123,7 +124,7 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
 
   return <div className="books-home">
     <style>{fontPreviewCss}</style>
-    <header className="books-home-header">
+    <header className="books-home-header" onMouseDown={startWindowDrag}>
       <div className="books-brand"><span><BookOpen size={22}/></span><div><strong>EPUB Studio</strong><small>我的图书工作台</small></div></div>
       <div className="books-header-actions">
         <button onClick={onImportBook} disabled={busy}><FilePlus2 size={16}/>导入 TXT / EPUB</button>
@@ -131,6 +132,7 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
         <button className="books-new" onClick={() => setShowCreate(true)} disabled={busy}><Plus size={17}/>新建工程</button>
       </div>
     </header>
+    {busy && <div className="books-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>正在处理工程…</div>}
     <div className="books-home-scroll"><div className="books-home-inner">
       <nav className="books-tabs" aria-label="首页分类">
         <button className={tab === 'projects' ? 'active' : ''} aria-current={tab === 'projects' ? 'page' : undefined} onClick={() => setTab('projects')}><BookOpen size={17}/>工程</button>

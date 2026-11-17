@@ -137,6 +137,36 @@ html.mac .topbar,html.mac .books-home-header{height:100px;padding-top:28px}
 
 .review-extracted{margin:5px 0 0 44px;font-size:11px;line-height:1.5;color:#0b6f65;font-weight:650}
 
+/* 大目录只绘制可见行，保留滚动条的完整高度。 */
+html,body,#root{overflow:hidden}
+body{-webkit-user-select:none;user-select:none}
+input,textarea,select,[contenteditable=true],.ProseMirror,.preview-content{-webkit-user-select:text;user-select:text}
+.workspace{min-width:0;overflow:hidden}
+.panel-resizer{position:relative;z-index:2;background:#dce7e4;cursor:col-resize;touch-action:none}
+.panel-resizer::after{content:'';position:absolute;inset:0 -3px}
+.panel-resizer:hover,.panel-resizer:focus-visible{background:#0d9488;outline:none}
+.chapter-list{min-height:0}
+.chapter-list-canvas{position:relative;width:100%}
+.chapter-list-row{position:absolute;left:0;right:0;height:46px;display:flex;align-items:center}
+.chapter-list-row .chapter-item{height:43px;min-height:43px;margin:0}
+.chapter-list-row .volume-row{width:100%}
+.chapter-context-menu{position:fixed;z-index:50;width:190px;padding:5px;background:#fff;border:1px solid #dce7e4;border-radius:9px;box-shadow:0 10px 32px #173c3933}
+.chapter-context-menu button{width:100%;height:32px;padding:0 10px;display:flex;align-items:center;gap:9px;border:0;border-radius:6px;background:transparent;color:#274c45;text-align:left;font-size:12px}
+.chapter-context-menu button:hover:not(:disabled),.chapter-context-menu button:focus-visible{background:#edf7f4}
+.chapter-context-menu button.danger{color:#bd4a4a}
+.chapter-context-menu button:disabled{opacity:.4}
+.editor-stage{position:relative;display:flex;flex:1;min-height:0;min-width:0}
+.chapter-loading{position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;gap:10px;background:#f3f7f5e8;color:#245a52;font-size:13px;font-weight:650}
+.books-home{position:relative}
+.books-loading{position:absolute;inset:100px 0 30px;z-index:10;display:flex;align-items:center;justify-content:center;gap:10px;background:#1d1d1fe8;color:#f5f5f7;font-size:13px;font-weight:650;animation:loading-reveal .15s .18s both}
+@keyframes loading-reveal{from{opacity:0}to{opacity:1}}
+.editor-stage.images-hidden .ProseMirror img{display:none}
+.editor-toolbar .image-toggle-button{width:auto;min-width:82px;padding:0 8px;display:inline-flex;gap:5px;white-space:nowrap;font-size:11px}
+.editor-toolbar .image-toggle-button[aria-pressed=true]{background:#e8f6f2;color:#0b756b}
+.loading-spinner{width:20px;height:20px;border:2px solid #b6d9d0;border-top-color:#0d9488;border-radius:50%;animation:chapter-spin .7s linear infinite}
+@keyframes chapter-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.loading-spinner{animation:none}}
+
 /* 资源库面板 */
 .library-panel{display:flex;flex-direction:column}
 .library-head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;padding:24px 20px 14px}

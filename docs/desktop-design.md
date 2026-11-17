@@ -20,4 +20,5 @@ Tauri 2 hosts a React/TypeScript editor. Rust owns filesystem access, TXT/EPUB i
 - The global style controls title/body font family, size, line height, and alignment. Selection formatting in Tiptap overrides it locally.
 - Chapter images form a list: each entry defaults to every chapter, can be narrowed to selected chapters or volumes, and sits above or below the chapter title. Projects saved with the older single opening/ending images migrate to that list on load; an editor toolbar still inserts free images at the cursor.
 - Source paths are chosen with native dialogs. The UI warns about unsaved changes before replacing a project.
+- While a project is open, unsaved edits are written back every 30 seconds without a busy state, so the dirty marker clears on its own; a save that is still in flight is never stacked, and edits made during a save stay dirty for the next tick.
 - Windows and macOS builds use the same source and a CI matrix; macOS is built locally, Windows build is verified in CI when available.

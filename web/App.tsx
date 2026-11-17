@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
@@ -7,23 +7,23 @@ import { TextStyleKit } from '@tiptap/extension-text-style'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
-import DOMPurify from 'dompurify'
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, BookOpen, ChevronDown,
-  ChevronRight, ChevronUp, Download, FolderOpen, ImagePlus, Italic, List,
+  ChevronUp, Download, FolderOpen, ImagePlus, Italic, List,
   ListOrdered, ListTree, Layers, Settings2, Plus, Redo2, Save, Trash2, Undo2,
-  LibraryBig, House, Search, MessageSquareText,
+  LibraryBig, House, Search, MessageSquareText, Eye, EyeOff,
 } from 'lucide-react'
 import {
   chapterGroups, chapterImagesAt, chapterStyle, chapterVolume, createChapterImage, createEmptyProject, createVolume, fontChoices,
-  previewStyles, reindexChapterLinks, resolveStyle, type BookStyle, type EditableChapter, type Project, type Volume,
+  previewStyles, reindexChapterLinks, type BookStyle, type EditableChapter, type Project, type Volume,
 } from './model'
 import { PreserveIds } from './PreserveIds'
 import { NoteMarker } from './NoteMarker'
-import { orderedNotes, renderNoteMarkers } from './notes'
+import { orderedNotes } from './notes'
 import ChapterReview from './ChapterReview'
 import FindReplace from './FindReplaceDialog'
 import type { FindReplaceResult } from './findReplace'
+import { AUTOSAVE_INTERVAL_MS, shouldAutosave } from './autosave'
 import { imageLinkUrls, replaceImageLinks } from './imageLinks'
 import VolumeSettings from './VolumeSettings'
 import ChapterImagesSettings from './ChapterImagesSettings'
@@ -32,6 +32,12 @@ import Home, { type WorkspaceSummary } from './Home'
 import HeadingTitle from './HeadingTitle'
 import HeadingStyleControls, { type HeadingStyleKey } from './HeadingStyleControls'
 import TextColorControl from './TextColorControl'
+import ChapterSidebarList from './ChapterSidebarList'
+import BookPreview from './BookPreview'
+import { clampPanelWidth } from './editorLayout'
+import { startWindowDrag } from './windowDrag'
+import { scanImageBatch } from './chapterImageScan'
+import { createSaveQueue } from './saveQueue'
 import type { HeadingLineStyle } from './model'
 
 type View = 'edit' | 'preview'
@@ -55,6 +61,13 @@ export default function App() {
   const [previewAsset, setPreviewAsset] = useState<AssetData | null>(null)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [chapterLoading, setChapterLoading] = useState(false)
+  const [chapterLoadVersion, setChapterLoadVersion] = useState(0)
+  const [showEditorImages, setShowEditorImages] = useState(false)
+  const [forcedPreviewTarget, setForcedPreviewTarget] = useState<{ chapterId: string; anchor: string } | null>(null)
+  const [pendingImageCount, setPendingImageCount] = useState(0)
+  const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem('epub-studio-sidebar-width')) || 240)
+  const [settingsWidth, setSettingsWidth] = useState(() => Number(localStorage.getItem('epub-studio-settings-width')) || 294)
   const [notice, setNotice] = useState('准备就绪')
   const [error, setError] = useState('')
   const [review, setReview] = useState<ReviewState | null>(null)
@@ -64,10 +77,21 @@ export default function App() {
   const [collapsedVolumeIds, setCollapsedVolumeIds] = useState<string[]>([])
   const selectedIdRef = useRef(selectedId)
   const bookRef = useRef(book)
+  const dirtyRef = useRef(dirty)
+  const busyRef = useRef(busy)
+  const autosavingRef = useRef(false)
   const editorScrollRef = useRef<HTMLDivElement>(null)
   const previewScrollRef = useRef<HTMLDivElement>(null)
+  const workspaceRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{ side: 'left' | 'right'; startX: number; initialWidth: number; oppositeWidth: number } | null>(null)
+  const imageCountCache = useRef(new Map<string, { html: string; count: number }>())
+  const chapterLoadingRef = useRef(false)
+  const pendingInlineImageRef = useRef<{ chapterId: string; src: string; alt: string } | null>(null)
+  const saveQueueRef = useRef(createSaveQueue())
   selectedIdRef.current = selectedId
   bookRef.current = book
+  dirtyRef.current = dirty
+  busyRef.current = busy
 
   const editor = useEditor({
     extensions: [
@@ -80,6 +104,7 @@ export default function App() {
     ],
     content: book.chapters[0].html,
     onUpdate: ({ editor: current }) => {
+      if (chapterLoadingRef.current) return
       const id = selectedIdRef.current
       const html = current.getHTML()
       setBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === id ? { ...chapter, html } : chapter) }))
@@ -89,8 +114,35 @@ export default function App() {
 
   useEffect(() => {
     const chapter = bookRef.current.chapters.find(item => item.id === selectedId)
-    if (editor && !editor.isDestroyed && chapter && editor.getHTML() !== chapter.html) editor.commands.setContent(chapter.html, { emitUpdate: false })
-  }, [selectedId, editor])
+    if (!editor || editor.isDestroyed || !chapter || screen !== 'editor' || view !== 'edit') return
+    let secondFrame = 0
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        if (!editor.isDestroyed) {
+          editor.commands.setContent(chapter.html, { emitUpdate: false })
+          editor.setEditable(true)
+          chapterLoadingRef.current = false
+          const pendingImage = pendingInlineImageRef.current
+          pendingInlineImageRef.current = null
+          if (pendingImage?.chapterId === selectedId) {
+            editor.chain().focus().setImage({ src: pendingImage.src, alt: pendingImage.alt }).run()
+            setNotice('图片已添加到书稿')
+          } else if (pendingImage) setNotice('章节已切换，图片插入已取消')
+        }
+        setChapterLoading(false)
+      })
+    })
+    return () => { cancelAnimationFrame(firstFrame); cancelAnimationFrame(secondFrame) }
+  }, [selectedId, editor, screen, view, chapterLoadVersion])
+
+  function beginChapterLoad(id: string, force = false) {
+    if (id === selectedId && !force) return
+    chapterLoadingRef.current = true
+    editor?.setEditable(false)
+    setChapterLoading(true)
+    if (force) setChapterLoadVersion(version => version + 1)
+    setSelectedId(id)
+  }
 
   function scrollEditorToTop() {
     const node = editorScrollRef.current
@@ -106,7 +158,8 @@ export default function App() {
   }
 
   function selectChapter(id: string) {
-    setSelectedId(id)
+    if (view === 'preview') setSelectedId(id)
+    else beginChapterLoad(id)
     if (view === 'preview' && id === selectedId) scrollPreviewToChapter(id)
     else scrollEditorToTop()
   }
@@ -123,6 +176,13 @@ export default function App() {
   useLayoutEffect(() => {
     if (view === 'preview') scrollPreviewToChapter(selectedId)
   }, [view, selectedId])
+
+  useLayoutEffect(() => {
+    if (!forcedPreviewTarget || view !== 'preview') return
+    const index = bookRef.current.chapters.findIndex(chapter => chapter.id === forcedPreviewTarget.chapterId)
+    const article = index >= 0 ? document.getElementById(`preview-chapter-${index + 1}`) : null
+    article?.querySelector(`#${CSS.escape(forcedPreviewTarget.anchor)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [forcedPreviewTarget, view])
 
   // 选中章节变化时展开它所在的卷，避免当前章节被折叠在列表外。
   useEffect(() => {
@@ -146,8 +206,24 @@ export default function App() {
   const currentVolume = chapterVolume(book, selectedChapter)
   const groups = useMemo(() => chapterGroups(book.chapters, book.volumes), [book.chapters, book.volumes])
   const chapterIndex = useMemo(() => new Map(book.chapters.map((chapter, index) => [chapter.id, index])), [book.chapters])
-  const pendingImageCount = useMemo(() => book.chapters.reduce((count, chapter) => count + imageLinkUrls(chapter.html).length, 0), [book.chapters])
   const editingVolume = volumeSettingsId ? book.volumes.find(volume => volume.id === volumeSettingsId) : undefined
+
+  useEffect(() => {
+    let cancelled = false
+    let cursor = 0
+    let total = 0
+    let timer = 0
+    const scan = () => {
+      if (cancelled) return
+      const batch = scanImageBatch(book.chapters, imageCountCache.current, cursor, 12)
+      cursor = batch.next
+      total += batch.count
+      if (cursor < book.chapters.length) timer = window.setTimeout(scan, 0)
+      else setPendingImageCount(total)
+    }
+    timer = window.setTimeout(scan, 0)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [book.chapters])
 
   function updateBook(next: (previous: Project) => Project) {
     setBook(next)
@@ -164,15 +240,18 @@ export default function App() {
 
   function replaceBook(next: Project, id: number, message: string) {
     next = { ...next, coverImage: next.coverImage ?? null, chapterImages: next.chapterImages ?? [], fontAssets: next.fontAssets ?? [] }
-    if (editor && !editor.isDestroyed) editor.commands.setContent(next.chapters[0].html, { emitUpdate: false })
+    imageCountCache.current.clear()
+    pendingInlineImageRef.current = null
+    beginChapterLoad(next.chapters[0].id, true)
     setBook(next)
-    setSelectedId(next.chapters[0].id)
     setWorkspaceId(id)
     setVolumeSettingsId(null)
     setFindReplaceOpen(false)
+    setForcedPreviewTarget(null)
     setCollapsedVolumeIds([])
     setDirty(false)
     setView('edit')
+    setShowEditorImages(false)
     setSettingsTab('settings')
     setScreen('editor')
     setError('')
@@ -192,9 +271,10 @@ export default function App() {
   }, [dirty])
 
   async function withBusy(action: () => Promise<void>) {
+    busyRef.current = true
     setBusy(true)
     setError('')
-    try { await action() } catch (cause) { setError(errorMessage(cause)) } finally { setBusy(false) }
+    try { await action() } catch (cause) { setError(errorMessage(cause)) } finally { busyRef.current = false; setBusy(false) }
   }
 
   function openReview(mode: ReviewState['mode'], source: Project, sourcePath?: string) {
@@ -223,8 +303,7 @@ export default function App() {
     setBook(next)
     setDirty(true)
     const current = next.chapters.find(chapter => chapter.id === selectedId) ?? next.chapters[0]
-    setSelectedId(current.id)
-    if (editor && !editor.isDestroyed && editor.getHTML() !== current.html) editor.commands.setContent(current.html, { emitUpdate: false })
+    beginChapterLoad(current.id, true)
     setReview(null)
     setError('')
     setView('edit')
@@ -299,8 +378,9 @@ export default function App() {
   async function saveProject() {
     if (workspaceId === null) return
     await withBusy(async () => {
-      await invoke('save_workspace', { id: workspaceId, book })
-      setDirty(false)
+      const snapshot = bookRef.current
+      await saveQueueRef.current(() => invoke('save_workspace', { id: workspaceId, book: snapshot }))
+      if (bookRef.current === snapshot) setDirty(false)
       setNotice('工程已保存')
     })
   }
@@ -409,6 +489,12 @@ export default function App() {
     await withBusy(async () => {
       const data = await invoke<AssetData>('get_asset', { id: asset.id })
       if (target === 'inline') {
+        if (view === 'preview') {
+          pendingInlineImageRef.current = { chapterId: selectedIdRef.current, src: data.dataUri, alt: asset.name }
+          beginChapterLoad(selectedIdRef.current, true)
+          setView('edit')
+          return
+        }
         setView('edit')
         editor?.chain().focus().setImage({ src: data.dataUri, alt: asset.name }).run()
         setNotice('图片已添加到书稿')
@@ -438,7 +524,7 @@ export default function App() {
   function addChapter() {
     const id = crypto.randomUUID()
     updateBook(previous => ({ ...previous, chapters: [...previous.chapters, { id, title: `第${previous.chapters.length + 1}章`, html: '<p></p>' }] }))
-    setSelectedId(id)
+    beginChapterLoad(id)
     setView('edit')
   }
 
@@ -466,22 +552,35 @@ export default function App() {
     updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, notes: (chapter.notes ?? []).filter(note => note.id !== id) } : chapter) }))
   }
 
-  function deleteChapter() {
-    if (book.chapters.length === 1 || !window.confirm(`删除“${selectedChapter.title}”？`)) return
-    const next = reindexChapterLinks(book.chapters, book.chapters.filter(chapter => chapter.id !== selectedId))
+  function deleteChapter(chapterId: string = selectedId) {
+    const index = book.chapters.findIndex(chapter => chapter.id === chapterId)
+    if (index < 0 || book.chapters.length === 1 || !window.confirm(`删除“${book.chapters[index].title}”？`)) return
+    const next = reindexChapterLinks(book.chapters, book.chapters.filter(chapter => chapter.id !== chapterId))
     updateBook(previous => ({ ...previous, chapters: next }))
-    setSelectedId(next[Math.min(selectedIndex, next.length - 1)].id)
+    if (chapterId === selectedId) {
+      const nextId = next[Math.min(index, next.length - 1)].id
+      if (view === 'preview') setSelectedId(nextId)
+      else beginChapterLoad(nextId)
+    }
   }
 
-  function moveChapter(direction: -1 | 1) {
-    const target = selectedIndex + direction
-    if (target < 0 || target >= book.chapters.length) return
+  function moveChapter(direction: -1 | 1, chapterId: string = selectedId) {
+    const index = book.chapters.findIndex(chapter => chapter.id === chapterId)
+    const target = index + direction
+    if (index < 0 || target < 0 || target >= book.chapters.length) return
     const chapters = [...book.chapters]
-    ;[chapters[selectedIndex], chapters[target]] = [chapters[target], chapters[selectedIndex]]
+    ;[chapters[index], chapters[target]] = [chapters[target], chapters[index]]
     const next = reindexChapterLinks(book.chapters, chapters)
     updateBook(previous => ({ ...previous, chapters: next }))
     const current = next.find(chapter => chapter.id === selectedId)
-    if (current && editor && !editor.isDestroyed && editor.getHTML() !== current.html) editor.commands.setContent(current.html, { emitUpdate: false })
+    if (view === 'edit' && current && editor && !editor.isDestroyed && editor.getHTML() !== current.html) editor.commands.setContent(current.html, { emitUpdate: false })
+  }
+
+  function editChapterTitle(chapterId: string) {
+    beginChapterLoad(chapterId, true)
+    setView('edit')
+    setForcedPreviewTarget(null)
+    requestAnimationFrame(() => document.getElementById('chapter-title')?.focus())
   }
 
   function handlePreviewClick(event: MouseEvent<HTMLDivElement>) {
@@ -491,6 +590,10 @@ export default function App() {
     event.preventDefault()
     const match = /^(?:chapter-(\d+)\.xhtml)?(?:#(.+))?$/.exec(href)
     if (!match) { setNotice('外部链接可在导出的 EPUB 中打开'); return }
+    if (match[1] && match[2]) {
+      const chapter = bookRef.current.chapters[Number(match[1]) - 1]
+      if (chapter) { setForcedPreviewTarget({ chapterId: chapter.id, anchor: match[2] }); return }
+    }
     const article = match[1] ? document.getElementById(`preview-chapter-${match[1]}`) : link?.closest('.preview-paper')
     const target = match[2] ? article?.querySelector(`#${CSS.escape(match[2])}`) : article
     target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -506,6 +609,62 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   })
+
+  // 每 30 秒把未保存的改动静默写回工程：不走 withBusy，否则整个界面每半分钟闪一次「处理中」。
+  useEffect(() => {
+    if (screen !== 'editor' || workspaceId === null) return
+    const timer = window.setInterval(() => {
+      if (!shouldAutosave({ attached: true, dirty: dirtyRef.current, busy: busyRef.current, saving: autosavingRef.current })) return
+      const snapshot = bookRef.current
+      autosavingRef.current = true
+      void saveQueueRef.current(() => invoke('save_workspace', { id: workspaceId, book: snapshot }))
+        // 保存期间用户又改过稿：新的改动仍然算未保存，下一跳会再存一次。
+        .then(() => { if (bookRef.current === snapshot) setDirty(false) })
+        .catch(cause => setError(errorMessage(cause)))
+        .finally(() => { autosavingRef.current = false })
+    }, AUTOSAVE_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [screen, workspaceId])
+
+  useEffect(() => {
+    localStorage.setItem('epub-studio-sidebar-width', String(sidebarWidth))
+    localStorage.setItem('epub-studio-settings-width', String(settingsWidth))
+  }, [sidebarWidth, settingsWidth])
+
+  useEffect(() => {
+    const node = workspaceRef.current
+    if (!node || screen !== 'editor') return
+    const observer = new ResizeObserver(() => {
+      setSidebarWidth(previous => clampPanelWidth(previous, node.clientWidth, settingsWidth))
+      setSettingsWidth(previous => clampPanelWidth(previous, node.clientWidth, sidebarWidth))
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [screen, sidebarWidth, settingsWidth])
+
+  function beginPanelResize(side: 'left' | 'right', event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = { side, startX: event.clientX, initialWidth: side === 'left' ? sidebarWidth : settingsWidth, oppositeWidth: side === 'left' ? settingsWidth : sidebarWidth }
+  }
+
+  function movePanelResize(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current
+    if (!drag || !workspaceRef.current) return
+    const delta = event.clientX - drag.startX
+    const width = clampPanelWidth(drag.initialWidth + (drag.side === 'left' ? delta : -delta), workspaceRef.current.clientWidth, drag.oppositeWidth)
+    if (drag.side === 'left') setSidebarWidth(width)
+    else setSettingsWidth(width)
+  }
+
+  function keyboardPanelResize(side: 'left' | 'right', event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const delta = event.key === 'ArrowRight' ? 20 : -20
+    const width = workspaceRef.current?.clientWidth ?? window.innerWidth
+    if (side === 'left') setSidebarWidth(current => clampPanelWidth(current + delta, width, settingsWidth))
+    else setSettingsWidth(current => clampPanelWidth(current - delta, width, sidebarWidth))
+  }
 
   const selectedStyle = previewStyles(chapterStyle(book, selectedChapter)) as CSSProperties
   const availableFonts = [...fontChoices, ...(book.fontAssets ?? []).map(font => ({ value: font.family, label: font.name }))]
@@ -588,7 +747,7 @@ export default function App() {
 
   return <div className="app-shell">
     <style>{embeddedFontCss}</style>
-    <header className="topbar">
+    <header className="topbar" onMouseDown={startWindowDrag}>
       <div className="brand"><div className="brand-icon"><BookOpen size={22} strokeWidth={2.3} /></div><div><strong>EPUB Studio</strong><span>电子书编辑器</span></div></div>
       <div className="document-state"><span className="document-name">{book.title}</span><span className={dirty ? 'state-dot dirty' : 'state-dot'} />{dirty ? '未保存' : '已保存'}</div>
       <div className="top-actions">
@@ -600,41 +759,28 @@ export default function App() {
       </div>
     </header>
 
-    <div className="workspace">
+    <div className="workspace" ref={workspaceRef} style={{ gridTemplateColumns: `${sidebarWidth}px 6px minmax(0,1fr) 6px ${settingsWidth}px` }}>
       <aside className="sidebar" aria-label="章节列表">
         <div className="panel-heading"><div><span className="eyebrow">内容导航</span><h2>章节目录 <small>{book.chapters.length}</small></h2></div><div className="heading-actions"><button className="icon-button" title="新建卷" aria-label="新建卷" onClick={addVolume}><Layers size={18}/></button><button className="icon-button" title="整理章节" aria-label="整理章节" onClick={() => openReview('manage', book)}><ListTree size={18}/></button><button className="icon-button" title="查找替换" aria-label="查找替换" onClick={() => setFindReplaceOpen(true)}><Search size={18}/></button><button className="icon-button add" title="添加章节" aria-label="添加章节" onClick={addChapter}><Plus size={20}/></button></div></div>
         {pendingImageCount > 0 && <button className="sidebar-image-action" disabled={busy} onClick={() => void embedBodyImages()}><ImagePlus size={15}/>嵌入正文图片 <span>{pendingImageCount}</span></button>}
-        <div className="chapter-list">
-          {groups.map((group, groupIndex) => {
-            const groupKey = group.volume?.id ?? group.chapters[0]?.id ?? 'loose'
-            const collapsed = group.volume ? collapsedVolumeIds.includes(group.volume.id) : false
-            const listId = group.volume ? `volume-chapters-${group.volume.id}-${groupIndex}` : undefined
-            return <div className={`chapter-group ${collapsed ? 'collapsed' : ''}`} key={`${groupKey}-${groupIndex}`}>
-              {group.volume && <div className="volume-row">
-                <button className="volume-toggle" aria-expanded={!collapsed} aria-controls={listId} aria-label={`${collapsed ? '展开' : '折叠'}${group.volume.title}`} title={collapsed ? '展开本卷' : '折叠本卷'} onClick={() => toggleVolume(group.volume!.id)}>
-                  <ChevronRight size={14}/>
-                </button>
-                <button className="volume-item" onClick={() => setVolumeSettingsId(group.volume!.id)} title={`${group.volume.title} · 卷设置`}>
-                  <Layers size={14}/><span className="volume-name">{group.volume.title}</span><span className="volume-count">{group.chapters.length}</span>
-                </button>
-              </div>}
-              {!collapsed && <div className="chapter-group-items" id={listId}>
-                {group.chapters.map(chapter => {
-                  const index = chapterIndex.get(chapter.id) ?? 0
-                  return <button key={chapter.id} className={`chapter-item ${group.volume ? 'in-volume' : ''} ${selectedId === chapter.id ? 'active' : ''}`} onClick={() => selectChapter(chapter.id)}>
-                    <span className="chapter-number">{String(index + 1).padStart(2, '0')}</span>
-                    <span className="chapter-label">{chapter.title || `章节 ${index + 1}`}</span>
-                  </button>
-                })}
-              </div>}
-            </div>
-          })}
-        </div>
-        <div className="sidebar-footer"><span>选中章节</span><div><button title="上移章节" aria-label="上移章节" disabled={selectedIndex <= 0} onClick={() => moveChapter(-1)}><ChevronUp size={17}/></button><button title="下移章节" aria-label="下移章节" disabled={selectedIndex >= book.chapters.length - 1} onClick={() => moveChapter(1)}><ChevronDown size={17}/></button><button title="删除章节" aria-label="删除章节" disabled={book.chapters.length === 1} onClick={deleteChapter}><Trash2 size={16}/></button></div></div>
+        <ChapterSidebarList
+          groups={groups}
+          collapsedVolumeIds={collapsedVolumeIds}
+          selectedId={selectedId}
+          chapterCount={book.chapters.length}
+          onSelectChapter={selectChapter}
+          onToggleVolume={toggleVolume}
+          onVolumeSettings={setVolumeSettingsId}
+          onEditTitle={editChapterTitle}
+          onMoveChapter={moveChapter}
+          onDeleteChapter={deleteChapter}
+        />
+        <div className="sidebar-footer"><span>选中章节</span><div><button title="上移章节" aria-label="上移章节" disabled={selectedIndex <= 0} onClick={() => moveChapter(-1)}><ChevronUp size={17}/></button><button title="下移章节" aria-label="下移章节" disabled={selectedIndex >= book.chapters.length - 1} onClick={() => moveChapter(1)}><ChevronDown size={17}/></button><button title="删除章节" aria-label="删除章节" disabled={book.chapters.length === 1} onClick={() => deleteChapter()}><Trash2 size={16}/></button></div></div>
       </aside>
+      <div className="panel-resizer" role="separator" aria-label="调整章节目录宽度" aria-orientation="vertical" aria-valuemin={200} aria-valuemax={480} aria-valuenow={sidebarWidth} tabIndex={0} onPointerDown={event => beginPanelResize('left', event)} onPointerMove={movePanelResize} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }} onKeyDown={event => keyboardPanelResize('left', event)}/>
 
       <main className="main-panel">
-        <div className="main-heading"><div><span className="eyebrow">书稿工作区</span><h1>{view === 'edit' ? '章节编辑' : '整书预览'}</h1></div><div className="view-switch" role="group" aria-label="视图切换"><button className={view === 'edit' ? 'selected' : ''} onClick={() => setView('edit')}>编辑</button><button className={view === 'preview' ? 'selected' : ''} onClick={() => setView('preview')}>预览</button></div></div>
+        <div className="main-heading"><div><span className="eyebrow">书稿工作区</span><h1>{view === 'edit' ? '章节编辑' : '整书预览'}</h1></div><div className="view-switch" role="group" aria-label="视图切换"><button className={view === 'edit' ? 'selected' : ''} onClick={() => { if (view === 'preview') { beginChapterLoad(selectedId, true); setForcedPreviewTarget(null) } setView('edit') }}>编辑</button><button className={view === 'preview' ? 'selected' : ''} onClick={() => { chapterLoadingRef.current = false; setChapterLoading(false); setView('preview') }}>预览</button></div></div>
         {view === 'edit' ? <>
           <div className="chapter-volume-bar">
             <span className="chapter-volume-label"><Layers size={14}/>所属卷</span>
@@ -653,34 +799,17 @@ export default function App() {
             <select aria-label="所选文字字号" defaultValue="" onChange={event => { if (event.target.value) editor?.chain().focus().setFontSize(`${event.target.value}px`).run() }}><option value="">字号</option>{[12, 14, 16, 18, 20, 24, 28, 32, 40].map(size => <option key={size} value={size}>{size}</option>)}</select>
             <span className="toolbar-divider"/><button title="加粗" aria-label="加粗" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={17}/></button><button title="斜体" aria-label="斜体" onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={17}/></button><TextColorControl editor={editor}/>
             <span className="toolbar-divider"/><button title="左对齐" aria-label="左对齐" onClick={() => editor?.chain().focus().setTextAlign('left').run()}><AlignLeft size={17}/></button><button title="居中" aria-label="居中" onClick={() => editor?.chain().focus().setTextAlign('center').run()}><AlignCenter size={17}/></button><button title="右对齐" aria-label="右对齐" onClick={() => editor?.chain().focus().setTextAlign('right').run()}><AlignRight size={17}/></button><button title="两端对齐" aria-label="两端对齐" onClick={() => editor?.chain().focus().setTextAlign('justify').run()}><AlignJustify size={17}/></button>
-            <span className="toolbar-divider"/><button title="无序列表" aria-label="无序列表" onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={17}/></button><button title="有序列表" aria-label="有序列表" onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={17}/></button><button title="在光标处插入图片" aria-label="在光标处插入图片" onClick={() => chooseImage('inline')}><ImagePlus size={18}/></button>
+            <span className="toolbar-divider"/><button title="无序列表" aria-label="无序列表" onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={17}/></button><button title="有序列表" aria-label="有序列表" onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={17}/></button><button title="在光标处插入图片" aria-label="在光标处插入图片" onClick={() => chooseImage('inline')}><ImagePlus size={18}/></button><button className="image-toggle-button" title={showEditorImages ? "隐藏编辑图片" : "显示编辑图片"} aria-label={showEditorImages ? "隐藏编辑图片" : "显示编辑图片"} aria-pressed={showEditorImages} onClick={() => setShowEditorImages(value => !value)}>{showEditorImages ? <EyeOff size={16}/> : <Eye size={16}/>}<span>{showEditorImages ? "隐藏图片" : "显示图片"}</span></button>
           </div>
-          <div className="editor-scroll" ref={editorScrollRef}><div className="paper edit-paper" style={selectedStyle}>{chapterImagesAt(book, selectedChapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}<HeadingTitle title={selectedChapter.title || '未命名章节'} kind="chapter" layout={selectedChapter.titleLayout}/>{chapterImagesAt(book, selectedChapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}<EditorContent editor={editor} className="chapter-editor" />{orderedNotes(selectedChapter).length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{orderedNotes(selectedChapter).map((note, index) => <div className="note-edit-row" key={note.id}><span>[{index + 1}]</span><textarea aria-label={`备注 ${index + 1}`} placeholder="输入备注内容" value={note.text} onChange={event => updateNote(note.id, event.target.value)}/><button title="删除备注" aria-label={`删除备注 ${index + 1}`} onClick={() => deleteNote(note.id)}><Trash2 size={16}/></button></div>)}</section>}</div></div>
+          <div className={`editor-stage ${showEditorImages ? "" : "images-hidden"}`} aria-busy={chapterLoading}>
+          <div className="editor-scroll" ref={editorScrollRef}><div className="paper edit-paper" style={selectedStyle}>{showEditorImages && chapterImagesAt(book, selectedChapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}<HeadingTitle title={selectedChapter.title || '未命名章节'} kind="chapter" layout={selectedChapter.titleLayout}/>{showEditorImages && chapterImagesAt(book, selectedChapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}<EditorContent editor={editor} className="chapter-editor" />{orderedNotes(selectedChapter).length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{orderedNotes(selectedChapter).map((note, index) => <div className="note-edit-row" key={note.id}><span>[{index + 1}]</span><textarea aria-label={`备注 ${index + 1}`} placeholder="输入备注内容" value={note.text} onChange={event => updateNote(note.id, event.target.value)}/><button title="删除备注" aria-label={`删除备注 ${index + 1}`} onClick={() => deleteNote(note.id)}><Trash2 size={16}/></button></div>)}</section>}</div></div>
+          {chapterLoading && <div className="chapter-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>正在加载章节正文…</div>}
+          </div>
         </> : <div className="preview-scroll" ref={previewScrollRef} onClick={handlePreviewClick}>
-          <div className="preview-note">预览按当前统一样式显示整本书，卷的字体与图片设置也会生效。导出后阅读器可能使用自己的字体设置。</div>
-          {groups.map(group => {
-            const volumeStyle = group.volume ? previewStyles(resolveStyle(book.style, group.volume.style)) as CSSProperties : undefined
-            return <Fragment key={group.volume?.id ?? group.chapters[0]?.id ?? 'empty'}>
-              {group.volume && <article className="paper preview-paper volume-paper" style={volumeStyle}>
-                <HeadingTitle title={group.volume.title} kind="volume" layout={group.volume.titleLayout}/>
-                {group.volume.openingImage && <img className="boundary-image" src={group.volume.openingImage} alt="卷首图"/>}
-              </article>}
-              {group.chapters.map(chapter => {
-                const index = chapterIndex.get(chapter.id) ?? 0
-                const last = group.chapters[group.chapters.length - 1].id === chapter.id
-                return <article className="paper preview-paper" id={`preview-chapter-${index + 1}`} style={previewStyles(chapterStyle(book, chapter)) as CSSProperties} key={chapter.id}>
-                  {chapterImagesAt(book, chapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}
-                  <HeadingTitle title={chapter.title} kind="chapter" id={chapter.titleId} layout={chapter.titleLayout}/>
-                  {chapterImagesAt(book, chapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}
-                  <div className="preview-content" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(renderNoteMarkers(chapter.html, orderedNotes(chapter)), { USE_PROFILES: { html: true } }) }}/>
-                  {group.volume?.closingImage && last && <img className="boundary-image" src={group.volume.closingImage} alt="卷尾图"/>}
-                  {orderedNotes(chapter).length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{orderedNotes(chapter).map((note, number) => <p key={note.id}><span>[{number + 1}]</span> {note.text}</p>)}</section>}
-                </article>
-              })}
-            </Fragment>
-          })}
+          <BookPreview book={book} groups={groups} chapterIndex={chapterIndex} scrollRef={previewScrollRef} forcedChapterId={forcedPreviewTarget?.chapterId}/>
         </div>}
       </main>
+      <div className="panel-resizer" role="separator" aria-label="调整设置栏宽度" aria-orientation="vertical" aria-valuemin={200} aria-valuemax={480} aria-valuenow={settingsWidth} tabIndex={0} onPointerDown={event => beginPanelResize('right', event)} onPointerMove={movePanelResize} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }} onKeyDown={event => keyboardPanelResize('right', event)}/>
 
       <aside className="settings-panel" aria-label="图书设置与资源库"><div className="settings-inner"><div className="settings-tabs" role="tablist" aria-label="侧边栏"><button role="tab" aria-selected={settingsTab === 'settings'} className={settingsTab === 'settings' ? 'active' : ''} onClick={() => setSettingsTab('settings')}>图书设置</button><button role="tab" aria-selected={settingsTab === 'library'} className={settingsTab === 'library' ? 'active' : ''} onClick={() => setSettingsTab('library')}><LibraryBig size={15}/>资源库</button></div>{settingsTab === 'settings' ? <><div className="panel-heading"><div><span className="eyebrow">统一管理</span><h2>图书设置</h2></div></div>
         <section className="setting-section"><h3>基本信息</h3><label>书名<input value={book.title} onChange={event => updateBook(previous => ({ ...previous, title: event.target.value }))}/></label><label>作者<input value={book.author} onChange={event => updateBook(previous => ({ ...previous, author: event.target.value }))}/></label><label>语言<input value={book.language} onChange={event => updateBook(previous => ({ ...previous, language: event.target.value }))}/></label></section>
@@ -716,7 +845,7 @@ export default function App() {
           onUseImage={(asset, target) => void useLibraryImage(asset, target)}
         />}</div></aside>
     </div>
-    <footer className="statusbar"><span className={error ? 'status-error' : ''}>{error || notice}</span><span>{busy ? '处理中…' : `${book.chapters.length} 章 · ${view === 'edit' ? '编辑模式' : '预览模式'}`}</span></footer>
+    <footer className="statusbar"><span className={error ? 'status-error' : ''}>{error || notice}</span><span>{chapterLoading ? '正在加载章节…' : busy ? '处理中…' : `${book.chapters.length} 章 · ${view === 'edit' ? '编辑模式' : '预览模式'}`}</span></footer>
     {editingVolume && <VolumeSettings
       volume={editingVolume}
       baseStyle={book.style}
