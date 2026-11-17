@@ -10,7 +10,15 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "title": "EPUB Studio", "width": 1440, "height": 900, "minWidth": 960, "minHeight": 650 }],
+    "windows": [{
+      "title": "EPUB Studio",
+      "width": 1440,
+      "height": 900,
+      "minWidth": 960,
+      "minHeight": 650,
+      "titleBarStyle": "Overlay",
+      "hiddenTitle": true
+    }],
     "security": { "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'" }
   },
   "bundle": {

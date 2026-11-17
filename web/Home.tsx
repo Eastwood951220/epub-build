@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import { BookOpen, FilePlus2, FolderOpen, Image as ImageIcon, Plus, Trash2, Type, X, Minus, Maximize2 } from 'lucide-react'
+import { BookOpen, FilePlus2, FolderOpen, Image as ImageIcon, Plus, Trash2, Type, X } from 'lucide-react'
 
 export interface WorkspaceSummary {
   id: number
@@ -27,9 +27,6 @@ interface Props {
   onDelete: (id: number) => Promise<void>
   onImportBook: () => Promise<void>
   onImportProject: () => Promise<void>
-  onWindowClose: () => void
-  onWindowMinimize: () => void
-  onWindowFullscreen: () => void
 }
 
 const filters = {
@@ -55,7 +52,7 @@ function ImageThumbnail({ asset }: { asset: AssetSummary }) {
   return <div className="books-asset-symbol" ref={element}>{source ? <img src={source} alt={asset.name}/> : <ImageIcon size={30}/>}</div>
 }
 
-export default function Home({ workspaces, busy, error, notice, onCreate, onOpen, onDelete, onImportBook, onImportProject, onWindowClose, onWindowMinimize, onWindowFullscreen }: Props) {
+export default function Home({ workspaces, busy, error, notice, onCreate, onOpen, onDelete, onImportBook, onImportProject }: Props) {
   const [tab, setTab] = useState<Tab>('projects')
   const [showCreate, setShowCreate] = useState(false)
   const [details, setDetails] = useState<NewWorkspaceDetails>({ title: '', author: '', language: 'zh-CN' })
@@ -127,7 +124,6 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
   return <div className="books-home">
     <style>{fontPreviewCss}</style>
     <header className="books-home-header">
-      <div className="window-controls" aria-label="窗口控制"><button className="window-close" title="关闭窗口" aria-label="关闭窗口" onClick={onWindowClose}><X size={13}/></button><button className="window-minimize" title="最小化窗口" aria-label="最小化窗口" onClick={onWindowMinimize}><Minus size={13}/></button><button className="window-fullscreen" title="切换全屏" aria-label="切换全屏" onClick={onWindowFullscreen}><Maximize2 size={11}/></button></div>
       <div className="books-brand"><span><BookOpen size={22}/></span><div><strong>EPUB Studio</strong><small>我的图书工作台</small></div></div>
       <div className="books-header-actions">
         <button onClick={onImportBook} disabled={busy}><FilePlus2 size={16}/>导入 TXT / EPUB</button>

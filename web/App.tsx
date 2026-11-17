@@ -11,8 +11,8 @@ import DOMPurify from 'dompurify'
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, BookOpen, ChevronDown,
   ChevronRight, ChevronUp, Download, FolderOpen, ImagePlus, Italic, List,
-  ListOrdered, ListTree, Layers, Settings2, Plus, Redo2, Save, Trash2, Undo2, X,
-  LibraryBig, House, Search, MessageSquareText, Minus, Maximize2,
+  ListOrdered, ListTree, Layers, Settings2, Plus, Redo2, Save, Trash2, Undo2,
+  LibraryBig, House, Search, MessageSquareText,
 } from 'lucide-react'
 import {
   chapterGroups, chapterImagesAt, chapterStyle, chapterVolume, createChapterImage, createEmptyProject, createVolume, fontChoices,
@@ -181,18 +181,15 @@ export default function App() {
 
   function canReplace() { return !dirty || window.confirm('当前修改尚未保存，确定继续吗？') }
 
-  async function closeWindow() {
-    if (canReplace()) await getCurrentWindow().close().catch(cause => setError(errorMessage(cause)))
-  }
-
-  async function minimizeWindow() {
-    await getCurrentWindow().minimize().catch(cause => setError(errorMessage(cause)))
-  }
-
-  async function toggleFullscreen() {
-    const window = getCurrentWindow()
-    try { await window.setFullscreen(!(await window.isFullscreen())) } catch (cause) { setError(errorMessage(cause)) }
-  }
+  // 关闭入口改由系统标题栏的红绿灯提供，未保存确认必须挂在原生关闭事件上。
+  useEffect(() => {
+    let stop: (() => void) | undefined
+    let disposed = false
+    void getCurrentWindow().onCloseRequested(event => { if (!canReplace()) event.preventDefault() })
+      .then(unlisten => { if (disposed) unlisten(); else stop = unlisten })
+      .catch(cause => setError(errorMessage(cause)))
+    return () => { disposed = true; stop?.() }
+  }, [dirty])
 
   async function withBusy(action: () => Promise<void>) {
     setBusy(true)
@@ -585,9 +582,6 @@ export default function App() {
       onDelete={deleteWorkspace}
       onImportBook={importFile}
       onImportProject={openProject}
-      onWindowClose={() => void closeWindow()}
-      onWindowMinimize={() => void minimizeWindow()}
-      onWindowFullscreen={() => void toggleFullscreen()}
     />
     {reviewDialog}
   </>
@@ -595,7 +589,6 @@ export default function App() {
   return <div className="app-shell">
     <style>{embeddedFontCss}</style>
     <header className="topbar">
-      <div className="window-controls" aria-label="窗口控制"><button className="window-close" title="关闭窗口" aria-label="关闭窗口" onClick={() => void closeWindow()}><X size={13}/></button><button className="window-minimize" title="最小化窗口" aria-label="最小化窗口" onClick={() => void minimizeWindow()}><Minus size={13}/></button><button className="window-fullscreen" title="切换全屏" aria-label="切换全屏" onClick={() => void toggleFullscreen()}><Maximize2 size={11}/></button></div>
       <div className="brand"><div className="brand-icon"><BookOpen size={22} strokeWidth={2.3} /></div><div><strong>EPUB Studio</strong><span>电子书编辑器</span></div></div>
       <div className="document-state"><span className="document-name">{book.title}</span><span className={dirty ? 'state-dot dirty' : 'state-dot'} />{dirty ? '未保存' : '已保存'}</div>
       <div className="top-actions">
