@@ -63,8 +63,9 @@ impl AssetStore {
             ("image", "png") => "image/png",
             ("image", "jpg" | "jpeg") => "image/jpeg",
             ("image", "gif") => "image/gif",
+            ("image", "webp") => "image/webp",
             ("image", "svg") => "image/svg+xml",
-            _ => return Err("仅支持 TTF、OTF、WOFF、WOFF2 字体或 PNG、JPEG、GIF、SVG 图片".into()),
+            _ => return Err("仅支持 TTF、OTF、WOFF、WOFF2 字体或 PNG、JPEG、GIF、WebP、SVG 图片".into()),
         };
         let content = fs::read(path).map_err(|e| format!("读取资源失败：{e}"))?;
         if content.is_empty() {
@@ -143,5 +144,21 @@ impl AssetStore {
             .execute("DELETE FROM assets WHERE id=?1", [id])
             .map_err(|e| format!("删除资源失败：{e}"))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn imports_webp_into_shared_image_library() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cover.webp");
+        fs::write(&path, b"RIFF\x04\0\0\0WEBP").unwrap();
+        let store = AssetStore::open(&dir.path().join("assets.sqlite3")).unwrap();
+        let summary = store.import_file(&path, "image").unwrap();
+        assert_eq!(summary.mime, "image/webp");
+        assert_eq!(store.get(summary.id).unwrap().data_uri, "data:image/webp;base64,UklGRgQAAABXRUJQ");
     }
 }

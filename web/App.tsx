@@ -28,7 +28,7 @@ import Home, { type WorkspaceSummary } from './Home'
 
 type View = 'edit' | 'preview'
 interface ReviewState { mode: 'import' | 'manage'; book: Project; sourcePath?: string }
-const imageFilters = [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'svg'] }]
+const imageFilters = [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] }]
 const fontFilters = [{ name: '字体', extensions: ['ttf', 'otf', 'woff', 'woff2'] }]
 
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String(error) }

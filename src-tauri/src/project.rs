@@ -253,8 +253,9 @@ pub fn read_image(path: &Path) -> Result<String, String> {
         Some("png") => "image/png",
         Some("jpg" | "jpeg") => "image/jpeg",
         Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
         Some("svg") => "image/svg+xml",
-        _ => return Err("仅支持 PNG、JPEG、GIF、SVG 图片".into()),
+        _ => return Err("仅支持 PNG、JPEG、GIF、WebP、SVG 图片".into()),
     };
     let data = fs::read(path).map_err(|e| format!("读取图片失败：{e}"))?;
     Ok(format!("data:{mime};base64,{}", STANDARD.encode(data)))
@@ -319,6 +320,14 @@ fn add_image(data_uri: &str, assets: &mut Vec<ImageAsset>) -> Result<String, Str
 #[cfg(test)]
 mod image_tests {
     use super::*;
+
+    #[test]
+    fn reads_webp_as_cover_data_uri() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cover.webp");
+        fs::write(&path, b"RIFF\x04\0\0\0WEBP").unwrap();
+        assert_eq!(read_image(&path).unwrap(), "data:image/webp;base64,UklGRgQAAABXRUJQ");
+    }
 
     #[test]
     fn embeds_webp_images_in_epub_assets() {

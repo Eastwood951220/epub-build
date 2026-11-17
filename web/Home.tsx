@@ -31,7 +31,7 @@ interface Props {
 
 const filters = {
   font: [{ name: '字体', extensions: ['ttf', 'otf', 'woff', 'woff2'] }],
-  image: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'svg'] }],
+  image: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] }],
 }
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
 
