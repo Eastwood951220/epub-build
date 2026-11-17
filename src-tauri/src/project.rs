@@ -260,6 +260,28 @@ pub fn read_image(path: &Path) -> Result<String, String> {
     Ok(format!("data:{mime};base64,{}", STANDARD.encode(data)))
 }
 
+pub fn download_image(url: &str) -> Result<String, String> {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return Err("仅支持 HTTP 或 HTTPS 图片链接".into());
+    }
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut response = client.get(url).send().map_err(|e| format!("下载图片失败：{e}"))?
+        .error_for_status().map_err(|e| format!("下载图片失败：{e}"))?;
+    let mut bytes = Vec::new();
+    response.by_ref().take(8 * 1024 * 1024 + 1).read_to_end(&mut bytes)
+        .map_err(|e| format!("读取图片失败：{e}"))?;
+    if bytes.len() > 8 * 1024 * 1024 { return Err("图片超过 8 MB".into()); }
+    let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") { "image/png" }
+        else if bytes.starts_with(b"\xff\xd8\xff") { "image/jpeg" }
+        else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") { "image/gif" }
+        else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" { "image/webp" }
+        else { return Err("链接返回的内容不是受支持的图片".into()); };
+    Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
+}
+
 struct ImageAsset {
     name: String,
     media_type: String,
@@ -272,6 +294,7 @@ fn add_image(data_uri: &str, assets: &mut Vec<ImageAsset>) -> Result<String, Str
         "data:image/png;base64" => ("image/png", "png"),
         "data:image/jpeg;base64" => ("image/jpeg", "jpg"),
         "data:image/gif;base64" => ("image/gif", "gif"),
+        "data:image/webp;base64" => ("image/webp", "webp"),
         "data:image/svg+xml;base64" => ("image/svg+xml", "svg"),
         _ => return Err("图片格式不支持".into()),
     };
@@ -291,6 +314,19 @@ fn add_image(data_uri: &str, assets: &mut Vec<ImageAsset>) -> Result<String, Str
         bytes,
     });
     Ok(name)
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+
+    #[test]
+    fn embeds_webp_images_in_epub_assets() {
+        let mut assets = Vec::new();
+        let html = embed_inline_images("<p><img src=\"data:image/webp;base64,UklGRgAAAABXRUJQ\" alt=\"图\" /></p>", &mut assets).unwrap();
+        assert_eq!(html, "<p><img src=\"../images/image-1.webp\" alt=\"图\" /></p>");
+        assert_eq!(assets[0].media_type, "image/webp");
+    }
 }
 
 fn embed_inline_images(html: &str, assets: &mut Vec<ImageAsset>) -> Result<String, String> {
@@ -890,6 +926,7 @@ fn image_mime(path: &str) -> Option<&'static str> {
         "png" => Some("image/png"),
         "jpg" | "jpeg" => Some("image/jpeg"),
         "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
         "svg" => Some("image/svg+xml"),
         _ => None,
     }
@@ -1046,6 +1083,7 @@ fn import_node(
             "png" => "image/png",
             "jpg" | "jpeg" => "image/jpeg",
             "gif" => "image/gif",
+            "webp" => "image/webp",
             "svg" => "image/svg+xml",
             _ => return String::new(),
         };

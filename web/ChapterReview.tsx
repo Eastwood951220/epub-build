@@ -10,10 +10,8 @@ import {
   normalizeChapters,
   previewText,
   removeChapter,
-  replaceInChapters,
   parseChapterTitle,
   renumberChapters,
-  replaceInVolumeTitles,
   splitChapter,
   splitHtmlBlocks,
   type ChapterCounting,
@@ -39,11 +37,6 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
   const [drafts, setDrafts] = useState<EditableChapter[]>(() => chapters.map(chapter => ({ ...chapter })))
   const [volumeDrafts, setVolumeDrafts] = useState<Volume[]>(() => volumes.map(volume => ({ ...volume, style: { ...volume.style } })))
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [find, setFind] = useState('')
-  const [replacement, setReplacement] = useState('')
-  const [scopeTitles, setScopeTitles] = useState(true)
-  const [scopeBody, setScopeBody] = useState(true)
-  const [scopeVolumes, setScopeVolumes] = useState(true)
   const [numberStyle, setNumberStyle] = useState<ChapterNumberStyle>('chinese')
   const [counting, setCounting] = useState<ChapterCounting>('book')
   const [start, setStart] = useState(1)
@@ -115,22 +108,6 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
     }
   }
 
-  function applyReplace() {
-    const chapterResult = replaceInChapters(drafts, find, replacement, { titles: scopeTitles, body: scopeBody })
-    const volumeResult = scopeVolumes ? replaceInVolumeTitles(volumeDrafts, find, replacement) : { volumes: volumeDrafts, matches: 0 }
-    setDrafts(chapterResult.chapters)
-    setVolumeDrafts(volumeResult.volumes)
-    const matches = chapterResult.matches + volumeResult.matches
-    if (matches === 0) {
-      setMessage('没有找到匹配内容')
-      return
-    }
-    const detail: string[] = []
-    if (chapterResult.matches > 0) detail.push(`章节文字 ${chapterResult.matches} 处`)
-    if (volumeResult.matches > 0) detail.push(`卷标题 ${volumeResult.matches} 处`)
-    setMessage(`已替换 ${matches} 处（${detail.join('，')}）`)
-  }
-
   function applyNumbering() {
     const result = renumberChapters(drafts, volumeDrafts, {
       style: numberStyle,
@@ -188,7 +165,6 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
   }
 
   const pending = busy || working
-  const replaceDisabled = !find || (!scopeTitles && !scopeBody && !scopeVolumes) || drafts.length === 0
   let cursor = 0
 
   return <div
@@ -222,21 +198,6 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
         {ruleError && <p className="review-rule-error" role="alert">{ruleError}</p>}
       </section>}
 
-      <section className="review-replace" aria-label="批量替换文字">
-        <div className="review-replace-inputs">
-          <label className="review-field">查找<input value={find} onChange={event => setFind(event.target.value)} placeholder="例如：第1章"/></label>
-          <label className="review-field">替换为<input value={replacement} onChange={event => setReplacement(event.target.value)} placeholder="留空表示删除"/></label>
-          <button className="button outline" disabled={replaceDisabled} onClick={applyReplace}>全部替换</button>
-        </div>
-        <div className="review-replace-scope">
-          <label><input type="checkbox" checked={scopeTitles} onChange={event => setScopeTitles(event.target.checked)}/>章节标题</label>
-          <label><input type="checkbox" checked={scopeBody} onChange={event => setScopeBody(event.target.checked)}/>正文内容</label>
-          {volumeDrafts.length > 0 && <label><input type="checkbox" checked={scopeVolumes} onChange={event => setScopeVolumes(event.target.checked)}/>卷标题</label>}
-          <span className="review-hint">按纯文本匹配，不会改动标签；替换后仍可继续修改。</span>
-          {message && <span className="review-message" role="status">{message}</span>}
-        </div>
-      </section>
-
       <section className="review-renumber" aria-label="统一章节编号">
         <div className="review-renumber-row">
           <span className="review-section-label">章节名前缀</span>
@@ -268,6 +229,7 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
           <button className="button outline" disabled={drafts.length === 0} onClick={applyNumbering}>{numberStyle === 'name' ? '去掉前缀' : '应用前缀'}</button>
         </div>
         <p className="review-hint">{numberingPreview} · 每章标题里的编号前缀（第222章 / 1. / Chapter 3）会先被抽掉，剩下的文字就是章节名，再按所选前缀统一重写。卷号保留原数字。</p>
+        {message && <p className="review-message" role="status">{message}</p>}
       </section>
 
       {error && <div className="review-error" role="alert">{error}</div>}

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
@@ -11,7 +11,7 @@ import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, BookOpen, ChevronDown,
   ChevronRight, ChevronUp, Download, FolderOpen, ImagePlus, Italic, List,
   ListOrdered, ListTree, Layers, Settings2, Plus, Redo2, Save, Trash2, Undo2, X,
-  LibraryBig, House,
+  LibraryBig, House, Search,
 } from 'lucide-react'
 import {
   chapterGroups, chapterStyle, chapterVolume, createEmptyProject, createVolume, fontChoices,
@@ -19,6 +19,9 @@ import {
 } from './model'
 import { PreserveIds } from './PreserveIds'
 import ChapterReview from './ChapterReview'
+import FindReplace from './FindReplaceDialog'
+import type { FindReplaceResult } from './findReplace'
+import { imageLinkUrls, replaceImageLinks } from './imageLinks'
 import VolumeSettings from './VolumeSettings'
 import LibraryPanel, { type AssetData, type AssetKind, type AssetSummary } from './LibraryPanel'
 import Home, { type WorkspaceSummary } from './Home'
@@ -47,12 +50,14 @@ export default function App() {
   const [notice, setNotice] = useState('准备就绪')
   const [error, setError] = useState('')
   const [review, setReview] = useState<ReviewState | null>(null)
+  const [findReplaceOpen, setFindReplaceOpen] = useState(false)
   const [reviewKey, setReviewKey] = useState(0)
   const [volumeSettingsId, setVolumeSettingsId] = useState<string | null>(null)
   const [collapsedVolumeIds, setCollapsedVolumeIds] = useState<string[]>([])
   const selectedIdRef = useRef(selectedId)
   const bookRef = useRef(book)
   const editorScrollRef = useRef<HTMLDivElement>(null)
+  const previewScrollRef = useRef<HTMLDivElement>(null)
   selectedIdRef.current = selectedId
   bookRef.current = book
 
@@ -83,9 +88,18 @@ export default function App() {
     if (node) node.scrollTop = 0
   }
 
+  function scrollPreviewToChapter(id: string) {
+    const container = previewScrollRef.current
+    const index = bookRef.current.chapters.findIndex(chapter => chapter.id === id)
+    const target = index >= 0 ? container?.querySelector<HTMLElement>(`#preview-chapter-${index + 1}`) : null
+    if (!container || !target) return
+    container.scrollTop += target.getBoundingClientRect().top - container.getBoundingClientRect().top - 24
+  }
+
   function selectChapter(id: string) {
     setSelectedId(id)
-    scrollEditorToTop()
+    if (view === 'preview' && id === selectedId) scrollPreviewToChapter(id)
+    else scrollEditorToTop()
   }
 
   function toggleVolume(volumeId: string) {
@@ -96,6 +110,10 @@ export default function App() {
   useEffect(() => {
     scrollEditorToTop()
   }, [selectedId])
+
+  useLayoutEffect(() => {
+    if (view === 'preview') scrollPreviewToChapter(selectedId)
+  }, [view, selectedId])
 
   // 选中章节变化时展开它所在的卷，避免当前章节被折叠在列表外。
   useEffect(() => {
@@ -119,6 +137,7 @@ export default function App() {
   const currentVolume = chapterVolume(book, selectedChapter)
   const groups = useMemo(() => chapterGroups(book.chapters, book.volumes), [book.chapters, book.volumes])
   const chapterIndex = useMemo(() => new Map(book.chapters.map((chapter, index) => [chapter.id, index])), [book.chapters])
+  const pendingImageCount = useMemo(() => book.chapters.reduce((count, chapter) => count + imageLinkUrls(chapter.html).length, 0), [book.chapters])
   const editingVolume = volumeSettingsId ? book.volumes.find(volume => volume.id === volumeSettingsId) : undefined
 
   function updateBook(next: (previous: Project) => Project) {
@@ -137,6 +156,7 @@ export default function App() {
     setSelectedId(next.chapters[0].id)
     setWorkspaceId(id)
     setVolumeSettingsId(null)
+    setFindReplaceOpen(false)
     setCollapsedVolumeIds([])
     setDirty(false)
     setView('edit')
@@ -451,6 +471,47 @@ export default function App() {
     onConfirm={confirmReview}
   /> : null
 
+  function applyFindReplace(result: FindReplaceResult) {
+    const selected = result.chapters.find(chapter => chapter.id === selectedId)
+    if (selected && editor && !editor.isDestroyed && editor.getHTML() !== selected.html) editor.commands.setContent(selected.html, { emitUpdate: false })
+    updateBook(previous => ({ ...previous, chapters: result.chapters, volumes: result.volumes }))
+  }
+
+  async function embedBodyImages() {
+    const urls = [...new Set(bookRef.current.chapters.flatMap(chapter => imageLinkUrls(chapter.html)))]
+    if (urls.length === 0) { setNotice('正文中没有待转换的图片标记'); return }
+    setBusy(true)
+    setError('')
+    const downloaded = new Map<string, string>()
+    let failures = 0
+    try {
+      for (let index = 0; index < urls.length; index += 6) {
+        const batch = urls.slice(index, index + 6)
+        const results = await Promise.allSettled(batch.map(url => invoke<string>('download_image', { url })))
+        results.forEach((result, offset) => {
+          if (result.status === 'fulfilled') downloaded.set(batch[offset], result.value)
+          else failures += 1
+        })
+        setNotice(`正在嵌入正文图片 ${Math.min(index + 6, urls.length)}/${urls.length}…`)
+      }
+      if (downloaded.size > 0) {
+        const next = bookRef.current.chapters.map(chapter => {
+          const html = replaceImageLinks(chapter.html, downloaded)
+          return html === chapter.html ? chapter : { ...chapter, html }
+        })
+        const selected = next.find(chapter => chapter.id === selectedId)
+        if (selected && editor && !editor.isDestroyed && editor.getHTML() !== selected.html) editor.commands.setContent(selected.html, { emitUpdate: false })
+        updateBook(previous => ({ ...previous, chapters: next }))
+      }
+      setNotice(`已嵌入 ${downloaded.size} 张正文图片${failures ? `，${failures} 张下载失败（可重试）` : ''}`)
+      if (failures && downloaded.size === 0) setError('图片下载失败，请检查网络或图片链接后重试')
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (screen === 'home') return <>
     <Home
       workspaces={workspaces}
@@ -482,7 +543,8 @@ export default function App() {
 
     <div className="workspace">
       <aside className="sidebar" aria-label="章节列表">
-        <div className="panel-heading"><div><span className="eyebrow">内容导航</span><h2>章节目录 <small>{book.chapters.length}</small></h2></div><div className="heading-actions"><button className="icon-button" title="新建卷" aria-label="新建卷" onClick={addVolume}><Layers size={18}/></button><button className="icon-button" title="章节整理与批量替换" aria-label="章节整理与批量替换" onClick={() => openReview('manage', book)}><ListTree size={18}/></button><button className="icon-button add" title="添加章节" aria-label="添加章节" onClick={addChapter}><Plus size={20}/></button></div></div>
+        <div className="panel-heading"><div><span className="eyebrow">内容导航</span><h2>章节目录 <small>{book.chapters.length}</small></h2></div><div className="heading-actions"><button className="icon-button" title="新建卷" aria-label="新建卷" onClick={addVolume}><Layers size={18}/></button><button className="icon-button" title="整理章节" aria-label="整理章节" onClick={() => openReview('manage', book)}><ListTree size={18}/></button><button className="icon-button" title="查找替换" aria-label="查找替换" onClick={() => setFindReplaceOpen(true)}><Search size={18}/></button><button className="icon-button add" title="添加章节" aria-label="添加章节" onClick={addChapter}><Plus size={20}/></button></div></div>
+        {pendingImageCount > 0 && <button className="sidebar-image-action" disabled={busy} onClick={() => void embedBodyImages()}><ImagePlus size={15}/>嵌入正文图片 <span>{pendingImageCount}</span></button>}
         <div className="chapter-list">
           {groups.map((group, groupIndex) => {
             const groupKey = group.volume?.id ?? group.chapters[0]?.id ?? 'loose'
@@ -534,7 +596,7 @@ export default function App() {
             <span className="toolbar-divider"/><button title="无序列表" aria-label="无序列表" onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={17}/></button><button title="有序列表" aria-label="有序列表" onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={17}/></button><button title="在光标处插入图片" aria-label="在光标处插入图片" onClick={() => chooseImage('inline')}><ImagePlus size={18}/></button>
           </div>
           <div className="editor-scroll" ref={editorScrollRef}><div className="paper edit-paper" style={selectedStyle}><h1 className="paper-chapter-title">{selectedChapter.title || '未命名章节'}</h1>{book.openingImage && <img className="boundary-image" src={book.openingImage} alt="章节开头"/>}<EditorContent editor={editor} className="chapter-editor" />{book.closingImage && <img className="boundary-image" src={book.closingImage} alt="章节末尾"/>}</div></div>
-        </> : <div className="preview-scroll" onClick={handlePreviewClick}>
+        </> : <div className="preview-scroll" ref={previewScrollRef} onClick={handlePreviewClick}>
           <div className="preview-note">预览按当前统一样式显示整本书，卷的字体与图片设置也会生效。导出后阅读器可能使用自己的字体设置。</div>
           {groups.map(group => {
             const volumeStyle = group.volume ? previewStyles(resolveStyle(book.style, group.volume.style)) as CSSProperties : undefined
@@ -595,5 +657,6 @@ export default function App() {
       onDelete={deleteVolume}
     />}
     {reviewDialog}
+    {findReplaceOpen && <FindReplace chapters={book.chapters} volumes={book.volumes} onClose={() => setFindReplaceOpen(false)} onApply={applyFindReplace}/>}
   </div>
 }

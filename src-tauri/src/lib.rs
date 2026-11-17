@@ -108,6 +108,12 @@ fn read_image(path: String) -> Result<String, String> {
     project::read_image(std::path::Path::new(&path))
 }
 
+#[tauri::command]
+async fn download_image(url: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || project::download_image(&url))
+        .await.map_err(|e| e.to_string())?
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -118,6 +124,7 @@ pub fn run() {
             save_project,
             export_epub,
             read_image,
+            download_image,
             list_assets,
             import_asset,
             get_asset,
