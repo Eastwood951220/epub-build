@@ -1,0 +1,1 @@
+Abel Regular test font, sourced from [Google Fonts](https://github.com/google/fonts/blob/main/ofl/abel/Abel-Regular.ttf). Copyright © 2011 Matthew Desmond. Licensed under the SIL Open Font License 1.1 in `OFL.txt`.

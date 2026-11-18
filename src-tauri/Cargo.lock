@@ -803,10 +803,13 @@ name = "epub-studio"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "fontoxide-subset",
+ "fontoxide-ttlib",
+ "html-escape",
  "percent-encoding",
  "regex",
  "reqwest",
- "roxmltree",
+ "roxmltree 0.20.0",
  "rusqlite",
  "serde",
  "serde_json",
@@ -815,6 +818,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tempfile",
  "time",
+ "ttf-parser",
  "zip",
 ]
 
@@ -916,6 +920,100 @@ name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
+name = "fontoxide-colorlib"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d3c8bf29253eb33123ae2e92db48d9eb9e5b78969c9c0e25adfa2d491dc637c"
+dependencies = [
+ "fontoxide-misc",
+ "fontoxide-ttlib",
+ "indexmap 2.14.2",
+ "log",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "fontoxide-encodings"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66cbacb319f9d9558dc618ef930b82b18b2a393a78966cb50dd8bb34e857efda"
+
+[[package]]
+name = "fontoxide-misc"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d47fa29459e471fd3a501ce0add5756a421e58cee590c9d0a1ffba8dc3703fa"
+dependencies = [
+ "fontoxide-encodings",
+ "indexmap 2.14.2",
+ "log",
+ "roxmltree 0.21.2",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "fontoxide-otllib"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ad0737f2ad04025a3bac964ffb2b39070569fd8a7bcd7200c69b88ea702257a"
+dependencies = [
+ "fontoxide-misc",
+ "fontoxide-ttlib",
+ "indexmap 2.14.2",
+ "log",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "fontoxide-pens"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f036483af19cfe391e64d56a9491aed15b7c4ef8950beea06def98434a95602b"
+dependencies = [
+ "fontoxide-misc",
+ "log",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "fontoxide-subset"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4c7ed396e8e6c5f90f6856d5e6120c106543fef5d9afd80abfe306babac0d71"
+dependencies = [
+ "fontoxide-colorlib",
+ "fontoxide-misc",
+ "fontoxide-otllib",
+ "fontoxide-ttlib",
+ "fontoxide-unicodedata",
+ "log",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "fontoxide-ttlib"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb53b45290cb6e5aa3b76f104194da8960343865e0d09cfd4f823d5b354b02f0"
+dependencies = [
+ "brotli",
+ "flate2",
+ "fontoxide-encodings",
+ "fontoxide-misc",
+ "fontoxide-pens",
+ "fontoxide-unicodedata",
+ "log",
+ "thiserror 2.0.21",
+ "zopfli",
+]
+
+[[package]]
+name = "fontoxide-unicodedata"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e64cf7ab702bdd1b110dd9355b5dd677272c3b6eae859b1f389e5c97bf9233f4"
 
 [[package]]
 name = "foreign-types"
@@ -1374,6 +1472,12 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "html-escape"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d45ed4d99334da2a2f221504e8ffc8ad09baf2a452b154465a976bfde697b004"
 
 [[package]]
 name = "html5ever"
@@ -2957,6 +3061,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 
 [[package]]
+name = "roxmltree"
+version = "0.21.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9da7f59328b09405b181fee1018925fad50f157afb43c0c0f5c522c256dd5907"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "rusqlite"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4317,6 +4430,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "ttf-parser"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
+
+[[package]]
 name = "typed-path"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5220,3 +5339,15 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zopfli"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aaf7fc5d30c28483d93805c4a5e12b05bbb52407fa67c5f8bd552374cd01fb11"
+dependencies = [
+ "bumpalo",
+ "crc32fast",
+ "log",
+ "simd-adler32",
+]

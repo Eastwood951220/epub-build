@@ -13,7 +13,7 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 use super::{
     BookStyle, ChapterImage, ChapterImagePlacement, ChapterImageScope, ChapterNote,
     EditableChapter, EmbeddedFont, HeadingLineStyle, Project, TitleLayout, VolumeStyle, escape_xml,
-    validate_project,
+    font_export::{book_characters, smaller_font_subset}, validate_project,
 };
 
 fn chapter_image_applies(chapter: &EditableChapter, entry: &ChapterImage) -> bool {
@@ -513,6 +513,7 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
     let mut manifest = String::from(
         "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/><item id=\"css\" href=\"styles/book.css\" media-type=\"text/css\"/>",
     );
+    let characters = if fonts.is_empty() { Default::default() } else { book_characters(book) };
     for (index, font) in fonts.iter().enumerate() {
         let ext = font_format(&font.mime).ok_or("字体格式不支持")?;
         if !valid_font_family(&font.family) {
@@ -525,13 +526,15 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
         let bytes = STANDARD
             .decode(encoded)
             .map_err(|e| format!("字体编码错误：{e}"))?;
+        let optimized = smaller_font_subset(&font.mime, &bytes, &characters);
+        let output_bytes = optimized.as_deref().unwrap_or(&bytes);
         let name = format!("font-{}.{}", index + 1, ext);
         manifest.push_str(&format!(
             "<item id=\"font-{}\" href=\"fonts/{name}\" media-type=\"{}\"/>",
             index + 1,
             font.mime
         ));
-        write_zip(&mut zip, &format!("OEBPS/fonts/{name}"), &bytes, compressed)?;
+        write_zip(&mut zip, &format!("OEBPS/fonts/{name}"), output_bytes, compressed)?;
     }
     let mut spine = String::new();
     let mut links = String::new();

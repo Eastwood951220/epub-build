@@ -192,6 +192,74 @@ fn epub_includes_only_referenced_fonts_from_styles_and_inline_text() {
 }
 
 #[test]
+fn used_ttf_is_subsetted_to_book_characters_in_epub() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+
+    let original = include_bytes!("fixtures/abel/Abel-Regular.ttf");
+    let original_face = ttf_parser::Face::parse(original, 0).unwrap();
+    assert!(original_face.glyph_index('Z').is_some());
+    assert!(original_face.glyph_index('é').is_some());
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(&input, "第一章\nAB").unwrap();
+    let mut project = import_book(&input).unwrap();
+    project.style.body_font_family = "EPUBStudioFont9".into();
+    project.chapters[0].html = "<p>A&#233;B</p>".into();
+    project.font_assets.push(epub_studio::project::EmbeddedFont {
+        family: "EPUBStudioFont9".into(),
+        name: "Abel Regular".into(),
+        mime: "font/ttf".into(),
+        data_uri: format!("data:font/ttf;base64,{}", STANDARD.encode(original)),
+    });
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(epub).unwrap()).unwrap();
+    let mut subset = Vec::new();
+    archive.by_name("OEBPS/fonts/font-1.ttf").unwrap().read_to_end(&mut subset).unwrap();
+    assert!(subset.len() < original.len(), "font did not shrink");
+    let subset_face = ttf_parser::Face::parse(&subset, 0).unwrap();
+    assert!(subset_face.glyph_index('A').is_some());
+    assert!(subset_face.glyph_bounding_box(subset_face.glyph_index('A').unwrap()).is_some());
+    assert!(subset_face.glyph_index('é').is_some(), "HTML entity character was lost");
+    assert!(subset_face.glyph_index('Z').is_none(), "unused glyph remained");
+}
+
+#[test]
+fn used_woff2_is_subsetted_and_keeps_its_format() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let mut font = fontoxide_ttlib::Font::read(
+        include_bytes!("fixtures/abel/Abel-Regular.ttf").to_vec(),
+        fontoxide_ttlib::ReadOptions::default(),
+    ).unwrap();
+    font.flavor = Some(fontoxide_ttlib::Flavor::Woff2);
+    let original = font.write(&fontoxide_ttlib::WriteOptions::default()).unwrap();
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(&input, "第一章\nAB").unwrap();
+    let mut project = import_book(&input).unwrap();
+    project.style.body_font_family = "EPUBStudioFont9".into();
+    project.chapters[0].html = "<p>AB</p>".into();
+    project.font_assets.push(epub_studio::project::EmbeddedFont {
+        family: "EPUBStudioFont9".into(), name: "Abel Regular".into(),
+        mime: "font/woff2".into(),
+        data_uri: format!("data:font/woff2;base64,{}", STANDARD.encode(&original)),
+    });
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(epub).unwrap()).unwrap();
+    let mut subset = Vec::new();
+    archive.by_name("OEBPS/fonts/font-1.woff2").unwrap().read_to_end(&mut subset).unwrap();
+    assert!(subset.len() < original.len());
+    assert!(subset.starts_with(b"wOF2"));
+    let mut decoded = fontoxide_ttlib::Font::read(subset, fontoxide_ttlib::ReadOptions::default()).unwrap();
+    decoded.flavor = None;
+    let sfnt = decoded.write(&fontoxide_ttlib::WriteOptions::default()).unwrap();
+    let face = ttf_parser::Face::parse(&sfnt, 0).unwrap();
+    assert!(face.glyph_index('A').is_some());
+    assert!(face.glyph_index('Z').is_none());
+}
+
+#[test]
 fn optional_first_line_indent_survives_save_and_controls_epub_css() {
     let dir = tempdir().unwrap();
     let input = dir.path().join("book.txt");

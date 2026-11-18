@@ -11,6 +11,7 @@ use crate::txt::{self, ChapterKind};
 
 mod epub_export;
 mod epub_import;
+mod font_export;
 pub use epub_export::export_epub;
 use epub_import::import_epub;
 

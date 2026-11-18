@@ -4,9 +4,9 @@
 
 **Goal:** Export only referenced font assets and reduce supported font files to the characters in the book.
 
-**Architecture:** Keep complete fonts in the editable project. During EPUB export, derive a conservative set of referenced font families from global styles, volume overrides, heading styles, and inline chapter markup. Use that ordered set for CSS and ZIP entries. Subset supported TTF/OTF bytes using a bundled Rust library; retain original bytes if subsetting fails or does not save space. WOFF/WOFF2 retain original bytes until a safe subsetting path is validated.
+**Architecture:** Keep complete fonts in the editable project. During EPUB export, derive a conservative set of referenced font families from global styles, volume overrides, heading styles, and inline chapter markup. Use that ordered set for CSS and ZIP entries. Subset TTF/OTF/WOFF/WOFF2 bytes using a bundled Rust library; retain original bytes if subsetting fails, violates a no-subsetting flag, loses a requested glyph, or does not save space.
 
-**Tech Stack:** Rust, EPUB ZIP exporter, `oxifont-subset`, existing Rust integration tests.
+**Tech Stack:** Rust, EPUB ZIP exporter, `fontoxide-subset`, existing Rust integration tests.
 
 **Spec:** User approved the two steps in this chat: remove unreferenced fonts, then subset used fonts. Preserve appearance and project data.
 
@@ -37,6 +37,8 @@
 
 **Files:** `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/src/project/epub_export.rs`, `src-tauri/tests/workflows.rs`, `src-tauri/tests/fixtures`.
 
-- [ ] Add a small, licensed font fixture and an integration test that checks a real exported subset and character coverage; confirm failure first.
-- [ ] Bundle a pure Rust subsetter and retain originals on unsupported/failed/no-saving cases.
-- [ ] Run full Rust tests, frontend tests/build, inspect EPUB output, then commit.
+- [x] Add a small, licensed font fixture and an integration test that checks a real exported subset and character coverage; confirm failure first.
+- [x] Bundle a pure Rust subsetter and retain originals on unsupported/failed/no-saving cases.
+- [x] Run full Rust tests, frontend tests/build, inspect EPUB output, then commit.
+
+Manual Chinese OTF verification: Source Han Serif SC Regular (24,543,332 bytes) exported as a 13,056-byte OTF subset for a short Chinese chapter; the exported subset retained the chapter and body characters. The full font was used only in a temporary local test and is not stored in this repository.
