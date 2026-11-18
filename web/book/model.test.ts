@@ -42,7 +42,10 @@ describe('project model', () => {
     expect(resolveStyle(book.style, { titleFontSize: 22 }).noteBox?.borderWidth).toBe(3)
     book.style.noteBox = { ...book.style.noteBox, showTitle: false, defaultTitle: '史料补充' }
     expect(previewStyles(book.style)['--note-box-title-display']).toBe('none')
+    expect(previewStyles(book.style)['--note-box-title-columns']).toBe('0 minmax(0,1fr)')
     expect(noteBoxStyle(book.style).defaultTitle).toBe('史料补充')
+    book.style.noteBox.showTitle = true
+    expect(previewStyles(book.style)['--note-box-title-columns']).toBe('max-content minmax(0,1fr)')
   })
 
   it('uses the optional two-character first-line indent in preview and volume chapters', () => {

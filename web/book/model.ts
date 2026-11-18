@@ -369,6 +369,8 @@ export function noteBoxVars(style: BookStyle | NoteBoxStyle | undefined): Record
     '--note-box-title-bg': box.titleBackground === box.borderColor ? '#ffffff' : box.titleBackground,
     '--note-box-title-color': box.borderColor,
     '--note-box-title-display': box.showTitle ? 'table' : 'none',
+    '--note-box-title-columns': box.showTitle ? 'max-content minmax(0,1fr)' : '0 minmax(0,1fr)',
+    '--note-box-title-gap': box.showTitle ? '.65em' : '0',
     '--note-box-text-color': box.textColor,
   }
 }

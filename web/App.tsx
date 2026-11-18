@@ -17,7 +17,7 @@ import {
 } from './book/model'
 import { PreserveIds } from './chapters/PreserveIds'
 import { NoteMarker } from './chapters/NoteMarker'
-import { NoteBox, NoteBoxTitle, appendNoteBox } from './chapters/NoteBox'
+import { NoteBox, NoteBoxTitle, appendNoteBox, hasNoteBox, removeNoteBoxes } from './chapters/NoteBox'
 import { orderedNotes } from './chapters/notes'
 import ChapterReview from './chapters/ChapterReview'
 import FindReplace from './chapters/FindReplaceDialog'
@@ -646,8 +646,15 @@ export default function App() {
 
   function addNoteBox() {
     if (!editor) return
-    appendNoteBox(editor, noteBoxStyle(book.style).defaultTitle)
-    setNotice('已在本章末尾添加小贴士，可直接编辑内容')
+    const action = appendNoteBox(editor, noteBoxStyle(book.style).defaultTitle)
+    editor.commands.focus('end')
+    setNotice(action === 'created' ? '已在本章末尾添加小贴士' : '已在现有小贴士中添加一行')
+  }
+
+  function deleteNoteBox() {
+    if (!editor || !hasNoteBox(editor) || !window.confirm('删除本章的小贴士及其全部内容？')) return
+    const count = removeNoteBoxes(editor)
+    setNotice(`已删除 ${count} 个小贴士，可使用撤销恢复`)
   }
 
   function updateNote(id: string, text: string) {
@@ -913,7 +920,7 @@ export default function App() {
             {currentVolume && <button className="button subtle" onClick={() => setVolumeSettingsId(currentVolume.id)}><Settings2 size={15}/>卷设置</button>}
           </div>
           <div className="chapter-title-field"><label htmlFor="chapter-title">章节标题</label><input id="chapter-title" value={selectedChapter.title} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, title: event.target.value } : chapter) }))} /><select aria-label="章节标题排列" value={selectedChapter.titleLayout ?? 'stacked'} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, titleLayout: event.target.value as 'inline' | 'stacked' } : chapter) }))}><option value="stacked">分两行</option><option value="inline">同一行</option></select></div>
-          <EditorToolbar editor={editor} availableFonts={availableFonts} showEditorImages={showEditorImages} onSelectFont={chooseSelectedTextFont} onAddNote={addNote} onAddNoteBox={addNoteBox} onChooseImage={() => void chooseImage('inline')} onToggleImages={() => setShowEditorImages(value => !value)}/>
+          <EditorToolbar editor={editor} availableFonts={availableFonts} showEditorImages={showEditorImages} hasNoteBox={hasNoteBox(editor)} onSelectFont={chooseSelectedTextFont} onAddNote={addNote} onAddNoteBox={addNoteBox} onDeleteNoteBox={deleteNoteBox} onChooseImage={() => void chooseImage('inline')} onToggleImages={() => setShowEditorImages(value => !value)}/>
           <div className={`editor-stage ${showEditorImages ? "" : "images-hidden"}`} aria-busy={chapterLoading}>
           <div className="editor-scroll" ref={editorScrollRef}><div className={`paper edit-paper${book.noteMarkerImage ? ' image-note-markers' : ''}${book.chapterNumberBackgroundImage ? ' has-number-background' : ''}${book.chapterNameBackgroundImage ? ' has-name-background' : ''}`} style={{ ...selectedStyle, ...chapterBackgroundStyle(book), ...chapterNumberBackgroundStyle(book), ...chapterNameBackgroundStyle(book), '--note-marker-image': book.noteMarkerImage ? `url("${book.noteMarkerImage}")` : 'none' } as CSSProperties}>{showEditorImages && chapterImagesAt(book, selectedChapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}<HeadingTitle title={selectedChapter.title || '未命名章节'} kind="chapter" layout={selectedChapter.titleLayout}/>{showEditorImages && chapterImagesAt(book, selectedChapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}<EditorContent editor={editor} className="chapter-editor" />{orderedNotes(selectedChapter).length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{orderedNotes(selectedChapter).map((note, index) => <div className="note-edit-row" key={note.id}>{book.noteDetailImage ? <img className="note-detail-image" src={book.noteDetailImage} alt={`备注 ${index + 1}`}/> : <span>[{index + 1}]</span>}<textarea aria-label={`备注 ${index + 1}`} placeholder="输入备注内容" value={note.text} onChange={event => updateNote(note.id, event.target.value)}/><button title="删除备注" aria-label={`删除备注 ${index + 1}`} onClick={() => deleteNote(note.id)}><Trash2 size={16}/></button></div>)}</section>}</div></div>
           {chapterLoading && <div className="chapter-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>正在加载章节正文…</div>}

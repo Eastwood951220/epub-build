@@ -364,7 +364,9 @@ fn note_box_css(style: &NoteBoxStyle, background: Option<&str>) -> String {
         ));
     }
     format!(
-        ".note-box{{position:relative;margin:2.1em 0 2em;padding:1.5em 1.2em .9em;border:{border};border-radius:0 {radius}px 0 {radius}px;{fill}color:{};line-height:1.65;text-align:left}}.note-box .note-box-title{{display:{};position:relative;min-width:4.5em;margin:-2.35em 0 1em .2em;padding:.1em .65em;border-radius:18px;background:{};color:{};text-align:center;font-weight:bold;line-height:1.5;text-indent:0}}.note-box p{{margin:0 0 .55em;text-indent:0}}.note-box p:last-child{{margin-bottom:0}}.note-box img{{display:inline-block;max-width:1em;max-height:1em;vertical-align:middle;margin:0 .2em 0 0}}",
+        ".note-box{{display:grid;grid-template-columns:{};column-gap:{};align-items:start;position:relative;margin:2.1em 0 2em;padding:1.1em 1.2em;border:{border};border-radius:0 {radius}px 0 {radius}px;{fill}color:{};line-height:1.65;text-align:left}}.note-box .note-box-title{{display:{};position:relative;min-width:4.5em;max-width:8em;margin:0;padding:.1em .65em;border-radius:18px;background:{};color:{};text-align:center;font-weight:bold;line-height:1.5;text-indent:0;overflow-wrap:anywhere}}.note-box>:not(.note-box-title){{grid-column:2;min-width:0}}.note-box p{{margin:0 0 .55em;text-indent:0}}.note-box p:last-child{{margin-bottom:0}}.note-box img{{display:inline-block;max-width:1em;max-height:1em;vertical-align:middle;margin:0 .2em 0 0}}",
+        if style.show_title { "max-content minmax(0,1fr)" } else { "0 minmax(0,1fr)" },
+        if style.show_title { ".65em" } else { "0" },
         safe_css_color(&style.text_color, "#a8795f"),
         if style.show_title { "table" } else { "none" },
         safe_css_color(if style.title_background == style.border_color { "#ffffff" } else { &style.title_background }, "#ffffff"),
@@ -952,6 +954,8 @@ mod image_tests {
         assert!(css.contains("color:#123456"));
         let hidden = NoteBoxStyle { show_title: false, ..fancy.clone() };
         assert!(note_box_css(&hidden, None).contains(".note-box .note-box-title{display:none"));
+        assert!(css.contains("display:grid;grid-template-columns:max-content minmax(0,1fr)"));
+        assert!(hidden.show_title == false && note_box_css(&hidden, None).contains("grid-template-columns:0 minmax(0,1fr)"));
         assert!(css.contains("border-radius:0 6px 0 6px"));
         assert!(css.contains("background-color:#fff8f0"));
         assert!(css.contains("background-image:url('../images/image-7.png')"));
