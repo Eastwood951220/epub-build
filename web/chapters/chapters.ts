@@ -1,6 +1,8 @@
 import type { EditableChapter, Volume } from '../book/model'
 
 const CHINESE_NUMERALS = '零〇一二三四五六七八九十百千万两'
+/** 大写汉字数字，用于「第壹卷」这类编号。 */
+const UPPER_CHINESE_NUMERALS = '壹贰叁肆伍陆柒捌玖拾佰仟萬'
 const CHAPTER_UNITS = '章节回卷部篇集'
 const STANDALONE_HEADINGS = ['序章', '楔子', '引子', '尾声', '后记', '番外', '终章']
 
@@ -22,7 +24,7 @@ export function looksLikeChapterHeading(text: string): boolean {
     let number = ''
     while (index < line.length) {
       const char = line[index]
-      if ((char >= '0' && char <= '9') || CHINESE_NUMERALS.includes(char)) {
+      if ((char >= '0' && char <= '9') || CHINESE_NUMERALS.includes(char) || UPPER_CHINESE_NUMERALS.includes(char)) {
         number += char
         index += 1
       } else break
@@ -269,12 +271,13 @@ export function normalizeChapters(chapters: EditableChapter[]): EditableChapter[
 
 const CHINESE_DIGITS: Record<string, number> = {
   零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
+  壹: 1, 贰: 2, 叁: 3, 肆: 4, 伍: 5, 陆: 6, 柒: 7, 捌: 8, 玖: 9,
 }
-const CHINESE_UNITS: Record<string, number> = { 十: 10, 百: 100, 千: 1000, 万: 10000 }
-const NUMBER_WORDS = '0-9零〇一二三四五六七八九十百千万两'
+const CHINESE_UNITS: Record<string, number> = { 十: 10, 拾: 10, 百: 100, 佰: 100, 千: 1000, 仟: 1000, 万: 10000, 萬: 10000 }
+const NUMBER_WORDS = '0-9零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟萬'
 const CHAPTER_UNIT_WORDS = '章节回集卷部篇'
 
-/** 十二 → 12, 二百二十二 → 222; returns null for non-numeric text. */
+/** 十二 → 12, 二百二十二 → 222, 壹拾贰 → 12; returns null for non-numeric text. */
 export function chineseNumberToArabic(text: string): number | null {
   let total = 0
   let section = 0
@@ -301,9 +304,9 @@ export function chineseNumberToArabic(text: string): number | null {
   return matched ? total + section + digit : null
 }
 
-function sectionToChinese(value: number): string {
-  const digits = '零一二三四五六七八九'
-  const units = ['', '十', '百', '千']
+function sectionToChinese(value: number, upper = false): string {
+  const digits = upper ? '零壹贰叁肆伍陆柒捌玖' : '零一二三四五六七八九'
+  const units = upper ? ['', '拾', '佰', '仟'] : ['', '十', '百', '千']
   const chars = String(value).split('').map(Number)
   let result = ''
   let pendingZero = false
@@ -320,22 +323,22 @@ function sectionToChinese(value: number): string {
   return result
 }
 
-/** 1 → 一, 11 → 十一, 222 → 二百二十二, 10005 → 一万零五. */
-export function arabicToChinese(value: number): string {
+/** 1 → 一, 11 → 十一, 222 → 二百二十二, 10005 → 一万零五; upper 输出大写汉字。 */
+export function arabicToChinese(value: number, upper = false): string {
   const number = Math.floor(value)
   if (!Number.isFinite(number) || number <= 0) return String(value)
   const high = Math.floor(number / 10000)
   const low = number % 10000
   let text = ''
-  if (high > 0) text += `${sectionToChinese(high)}万`
+  if (high > 0) text += `${sectionToChinese(high, upper)}${upper ? '萬' : '万'}`
   if (low > 0) {
     if (high > 0 && low < 1000) text += '零'
-    text += sectionToChinese(low)
+    text += sectionToChinese(low, upper)
   }
-  return text.replace(/^一十/, '十')
+  return upper ? text.replace(/^壹拾/, '拾') : text.replace(/^一十/, '十')
 }
 
-export type ChapterNumberStyle = 'chinese' | 'arabic' | 'bare' | 'dot' | 'dun' | 'name'
+export type ChapterNumberStyle = 'chinese' | 'upper' | 'arabic' | 'bare' | 'dot' | 'dun' | 'name'
 export type ChapterCounting = 'book' | 'volume' | 'keep'
 
 export interface ParsedChapterTitle {
@@ -346,6 +349,7 @@ export interface ParsedChapterTitle {
 }
 
 const NUMBERED_PREFIX = new RegExp(`^第\\s*([${NUMBER_WORDS}]+)\\s*([${CHAPTER_UNIT_WORDS}])\\s*[:：,，、.．·\\-—]?\\s*`)
+const VOLUME_ONLY_PREFIX = new RegExp(`^卷\\s*[丨|:：,，、.．·\\-—]?\\s*([${NUMBER_WORDS}]+)\\s*[丨|:：,，、.．·\\-—]?\\s*`)
 const ENGLISH_PREFIX = /^chapter\s*([0-9]+)\s*[:：.,，、]?\s*/i
 const DOT_PREFIX = /^([0-9]{1,4})\s*[.．、:：]\s*/
 const SPACE_PREFIX = /^([0-9]{1,4})\s+/
@@ -358,6 +362,12 @@ export function parseChapterTitle(title: string): ParsedChapterTitle {
     const raw = chinese[1]
     const number = /^\d+$/.test(raw) ? Number(raw) : chineseNumberToArabic(raw)
     return { number, unit: chinese[2], text: value.slice(chinese[0].length).trim() }
+  }
+  const volume = VOLUME_ONLY_PREFIX.exec(value)
+  if (volume) {
+    const raw = volume[1]
+    const number = /^\d+$/.test(raw) ? Number(raw) : chineseNumberToArabic(raw)
+    return { number, unit: '卷', text: value.slice(volume[0].length).trim() }
   }
   const english = ENGLISH_PREFIX.exec(value)
   if (english) return { number: Number(english[1]), unit: null, text: value.slice(english[0].length).trim() }
@@ -372,6 +382,7 @@ export function formatChapterTitle(number: number, text: string, style: ChapterN
   const name = text.trim()
   switch (style) {
     case 'chinese': return `第${arabicToChinese(number)}章${name ? ' ' + name : ''}`
+    case 'upper': return `第${arabicToChinese(number, true)}章${name ? ' ' + name : ''}`
     case 'arabic': return `第${number}章${name ? ' ' + name : ''}`
     case 'bare': return `${number}${name ? ' ' + name : ''}`
     case 'dot': return `${number}.${name ? ' ' + name : ''}`
@@ -381,9 +392,49 @@ export function formatChapterTitle(number: number, text: string, style: ChapterN
 }
 
 export function formatVolumeTitle(number: number, text: string, style: ChapterNumberStyle, unit = '卷'): string {
-  const numeral = style === 'chinese' ? arabicToChinese(number) : String(number)
   const name = text.trim()
-  return `第${numeral}${unit}${name ? ' ' + name : ''}`
+  switch (style) {
+    case 'name': return name
+    case 'bare': return `${number}${name ? ' ' + name : ''}`
+    case 'dot': return `${number}.${name ? ' ' + name : ''}`
+    case 'dun': return `${number}、${name}`
+    case 'upper': return `第${arabicToChinese(number, true)}${unit}${name ? ' ' + name : ''}`
+    default: {
+      const numeral = style === 'chinese' ? arabicToChinese(number) : String(number)
+      return `第${numeral}${unit}${name ? ' ' + name : ''}`
+    }
+  }
+}
+
+export interface VolumeNumberOptions {
+  style: ChapterNumberStyle
+  start: number
+  /** 卷／部／篇，缺省时沿用各卷标题里已有的单位。 */
+  unit?: string
+}
+
+export interface VolumeNumberResult {
+  volumes: Volume[]
+  renamed: number
+}
+
+/**
+ * Rewrites every volume title in one numbering style, keeping the volume name.
+ * Used by the 卷批量编辑 dialog: volumes are numbered book-wide from `start`.
+ */
+export function renumberVolumeTitles(volumes: Volume[], options: VolumeNumberOptions): VolumeNumberResult {
+  const start = Math.max(1, Math.floor(options.start) || 1)
+  let renamed = 0
+  const next = volumes.map((volume, index) => {
+    const parsed = parseChapterTitle(volume.title)
+    const number = parsed.number ?? start + index
+    const unit = options.unit || parsed.unit || '卷'
+    const title = formatVolumeTitle(number, parsed.text, options.style, unit)
+    if (title === volume.title) return volume
+    renamed += 1
+    return { ...volume, title }
+  })
+  return { volumes: next, renamed }
 }
 
 export interface RenumberOptions {
@@ -442,16 +493,10 @@ export function renumberChapters(chapters: EditableChapter[], volumes: Volume[],
     renamed += 1
     return { ...chapter, title }
   })
-  let renamedVolumes = 0
-  const nextVolumes = options.renumberVolumes
-    ? volumes.map((volume, index) => {
-      const parsed = parseChapterTitle(volume.title)
-      const number = parsed.number ?? start + index
-      const title = formatVolumeTitle(number, parsed.text, options.style, parsed.unit ?? '卷')
-      if (title === volume.title) return volume
-      renamedVolumes += 1
-      return { ...volume, title }
-    })
-    : volumes
+  const volumesResult = options.renumberVolumes
+    ? renumberVolumeTitles(volumes, { style: options.style, start })
+    : { volumes, renamed: 0 }
+  const renamedVolumes = volumesResult.renamed
+  const nextVolumes = volumesResult.volumes
   return { chapters: nextChapters, volumes: nextVolumes, renamed, renamedVolumes }
 }

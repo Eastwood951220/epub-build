@@ -203,6 +203,7 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
           <span className="review-section-label">章节名前缀</span>
           <select value={numberStyle} onChange={event => setNumberStyle(event.target.value as ChapterNumberStyle)} aria-label="编号格式">
             <option value="chinese">第X章（中文数字）</option>
+            <option value="upper">第X章（大写汉字：壹贰叁）</option>
             <option value="arabic">第X章（阿拉伯数字）</option>
             <option value="bare">1 名称</option>
             <option value="dot">1. 名称</option>

@@ -227,16 +227,16 @@ fn split_heading(title: &str, volume: bool) -> (String, String) {
     static CHAPTER: OnceLock<Regex> = OnceLock::new();
     static VOLUME: OnceLock<Regex> = OnceLock::new();
     let pattern = if volume {
-        VOLUME.get_or_init(|| Regex::new(r"^(第[0-9０-９零〇一二三四五六七八九十百千万两]+[卷部篇]|卷[0-9０-９零〇一二三四五六七八九十百千万两]+)(.*)$").unwrap())
+        VOLUME.get_or_init(|| Regex::new(r"^(第[0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟萬]+[卷部篇]|卷[丨|:：,，、.．·\-—\s]*[0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟萬]+[丨|]?)(.*)$").unwrap())
     } else {
         CHAPTER.get_or_init(|| {
-            Regex::new(r"^(第[0-9０-９零〇一二三四五六七八九十百千万两]+[章节回话])(.*)$").unwrap()
+            Regex::new(r"^(第[0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟萬]+[章节回话])(.*)$").unwrap()
         })
     };
     let text = title.trim();
     if let Some(captures) = pattern.captures(text) {
         let name = captures[2]
-            .trim_start_matches(|c: char| c.is_whitespace() || ":：、.．·—-".contains(c))
+            .trim_start_matches(|c: char| c.is_whitespace() || ":：、.．·—-丨|".contains(c))
             .trim();
         (captures[1].to_string(), name.to_string())
     } else {
@@ -659,6 +659,31 @@ fn book_id(book: &Project) -> u64 {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     hash
+}
+
+#[cfg(test)]
+mod heading_split_tests {
+    use super::split_heading;
+
+    #[test]
+    fn splits_upper_case_chinese_numbers() {
+        assert_eq!(
+            split_heading("第壹卷 少年", true),
+            ("第壹卷".to_string(), "少年".to_string())
+        );
+        assert_eq!(
+            split_heading("第贰拾叁章 归途", false),
+            ("第贰拾叁章".to_string(), "归途".to_string())
+        );
+        assert_eq!(
+            split_heading("卷壹丨风起", true),
+            ("卷壹丨".to_string(), "风起".to_string())
+        );
+        assert_eq!(
+            split_heading("卷丨叁丨", true),
+            ("卷丨叁丨".to_string(), String::new())
+        );
+    }
 }
 
 #[cfg(test)]

@@ -259,7 +259,15 @@ fn project_save_load_and_epub_export_round_trip() {
     );
     assert_eq!(imported.chapters.len(), 2);
     assert!(imported.chapters[0].html.contains("<strong>加粗</strong>"));
-    assert!(imported.chapters[0].html.contains("data:image/png;base64,"));
+    // 章节插图导出后在每章标题下重复出现，再导入时会被折回章节插图，
+    // 所以图片可能出现在正文里，也可能出现在 chapter_images 里。
+    assert!(
+        imported.chapters[0].html.contains("data:image/png;base64,")
+            || imported
+                .chapter_images
+                .iter()
+                .any(|entry| entry.image.starts_with("data:image/png;base64,"))
+    );
 }
 
 #[test]
@@ -333,6 +341,138 @@ fn epub_import_splits_headings_and_keeps_internal_links() {
         .read_to_string(&mut chapter)
         .unwrap();
     assert!(chapter.contains("<h1 class=\"chapter-heading title-stacked\" id=\"two\"><span class=\"heading-name\">Two</span></h1>"));
+}
+
+#[test]
+fn epub_import_turns_volume_pages_into_volumes() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("volumes.epub");
+    let file = fs::File::create(&path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("META-INF/container.xml", options).unwrap();
+    std::io::Write::write_all(&mut zip, br#"<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>"#).unwrap();
+    zip.start_file("OEBPS/content.opf", options).unwrap();
+    std::io::Write::write_all(&mut zip, br#"<package><metadata><title>Volumes</title></metadata><manifest><item id="v" href="volume.xhtml"/><item id="c" href="one.xhtml"/><item id="d" href="two.xhtml"/></manifest><spine><itemref idref="v"/><itemref idref="c"/><itemref idref="d"/></spine></package>"#).unwrap();
+    zip.start_file("OEBPS/volume.xhtml", options).unwrap();
+    std::io::Write::write_all(&mut zip, r#"<html><body><h1>卷丨壹丨</h1><p>风起</p></body></html>"#.as_bytes()).unwrap();
+    zip.start_file("OEBPS/one.xhtml", options).unwrap();
+    std::io::Write::write_all(&mut zip, r#"<html><body><h2>第壹章 开端</h2><p>正文一</p></body></html>"#.as_bytes()).unwrap();
+    zip.start_file("OEBPS/two.xhtml", options).unwrap();
+    std::io::Write::write_all(&mut zip, r#"<html><body><h2>第贰章 继续</h2><p>正文二</p></body></html>"#.as_bytes()).unwrap();
+    zip.finish().unwrap();
+
+    let project = import_book(&path).unwrap();
+    assert_eq!(project.chapters.len(), 2, "卷页不该变成章节");
+    assert_eq!(project.volumes.len(), 1);
+    assert_eq!(project.volumes[0].title, "卷丨壹丨 风起");
+    assert_eq!(
+        project.chapters[0].volume_id.as_deref(),
+        Some(project.volumes[0].id.as_str())
+    );
+    assert_eq!(
+        project.chapters[1].volume_id.as_deref(),
+        Some(project.volumes[0].id.as_str())
+    );
+}
+
+#[test]
+fn epub_import_accepts_documents_with_doctype() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("xhtml11.epub");
+    let file = fs::File::create(&path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("META-INF/container.xml", options).unwrap();
+    std::io::Write::write_all(&mut zip, br#"<?xml version="1.0"?><container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>"#).unwrap();
+    zip.start_file("OEBPS/content.opf", options).unwrap();
+    std::io::Write::write_all(&mut zip, br#"<?xml version="1.0"?><package><metadata><title>Doctype book</title></metadata><manifest><item id="c" href="book.xhtml"/></manifest><spine><itemref idref="c"/></spine></package>"#).unwrap();
+    zip.start_file("OEBPS/book.xhtml", options).unwrap();
+    std::io::Write::write_all(&mut zip, r##"<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>One</h1><p>正文</p></body></html>"##.as_bytes()).unwrap();
+    zip.finish().unwrap();
+
+    let project = import_book(&path).unwrap();
+    assert_eq!(project.title, "Doctype book");
+    assert_eq!(project.chapters.len(), 1);
+    assert_eq!(project.chapters[0].title, "One");
+    assert!(project.chapters[0].html.contains("正文"));
+}
+
+#[test]
+fn epub_import_keeps_image_only_intro_with_its_chapter() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("illustrated.epub");
+    let file = fs::File::create(&path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("META-INF/container.xml", options).unwrap();
+    std::io::Write::write_all(&mut zip, br#"<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>"#).unwrap();
+    zip.start_file("OEBPS/content.opf", options).unwrap();
+    std::io::Write::write_all(&mut zip, br#"<package><metadata><title>Book</title></metadata><manifest><item id="front" href="front.xhtml"/><item id="c" href="book.xhtml"/><item id="p" href="images/p.png" media-type="image/png"/></manifest><spine><itemref idref="front"/><itemref idref="c"/></spine></package>"#).unwrap();
+    zip.start_file("OEBPS/images/p.png", options).unwrap();
+    std::io::Write::write_all(&mut zip, &[0x89, b'P', b'N', b'G']).unwrap();
+    zip.start_file("OEBPS/front.xhtml", options).unwrap();
+    std::io::Write::write_all(&mut zip, r#"<html><body><p>前言</p><h2>第一章</h2><p>正文</p></body></html>"#.as_bytes()).unwrap();
+    zip.start_file("OEBPS/book.xhtml", options).unwrap();
+    std::io::Write::write_all(&mut zip, r#"<html><body><div><img src="images/p.png"/></div><h2>第二章</h2><p>正文二</p></body></html>"#.as_bytes()).unwrap();
+    zip.finish().unwrap();
+
+    let project = import_book(&path).unwrap();
+    // 前言有文字，保留为独立章节；只有插图的页并入它后面的章节。
+    assert_eq!(project.chapters.len(), 3);
+    assert_eq!(project.chapters[0].title, "章节 1");
+    assert!(project.chapters[0].html.contains("前言"));
+    assert_eq!(project.chapters[1].title, "第一章");
+    assert_eq!(project.chapters[2].title, "第二章");
+    assert!(
+        project.chapters[2].html.contains("data:image/png;base64,"),
+        "chapter illustration must stay in its chapter body"
+    );
+    assert!(project.chapters[2].html.contains("正文二"));
+}
+
+#[test]
+fn epub_import_hoists_repeated_leading_images_into_chapter_images() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("repeated.epub");
+    let file = fs::File::create(&path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("META-INF/container.xml", options).unwrap();
+    std::io::Write::write_all(&mut zip, br#"<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>"#).unwrap();
+    zip.start_file("OEBPS/content.opf", options).unwrap();
+    std::io::Write::write_all(&mut zip, br#"<package><metadata><title>Book</title></metadata><manifest><item id="a" href="a.xhtml"/><item id="b" href="b.xhtml"/><item id="c" href="c.xhtml"/><item id="p" href="images/p.png" media-type="image/png"/><item id="q" href="images/q.png" media-type="image/png"/></manifest><spine><itemref idref="a"/><itemref idref="b"/><itemref idref="c"/></spine></package>"#).unwrap();
+    for (name, bytes) in [("p", &[0x89u8, b'P', b'N', b'G'][..]), ("q", &[0x89, b'P', b'N', b'G', b'2'][..])] {
+        zip.start_file(format!("OEBPS/images/{name}.png"), options).unwrap();
+        std::io::Write::write_all(&mut zip, &bytes).unwrap();
+    }
+    zip.start_file("OEBPS/a.xhtml", options).unwrap();
+    std::io::Write::write_all(&mut zip, r#"<html><body><div><img src="images/p.png"/></div><h2>第一章</h2><p>正文一</p></body></html>"#.as_bytes()).unwrap();
+    zip.start_file("OEBPS/b.xhtml", options).unwrap();
+    std::io::Write::write_all(&mut zip, r#"<html><body><div><img src="images/p.png"/></div><h2>第二章</h2><p>正文二</p></body></html>"#.as_bytes()).unwrap();
+    zip.start_file("OEBPS/c.xhtml", options).unwrap();
+    std::io::Write::write_all(&mut zip, r#"<html><body><h2>第三章</h2><p>正文三</p><p><img src="images/q.png"/></p></body></html>"#.as_bytes()).unwrap();
+    zip.finish().unwrap();
+
+    let project = import_book(&path).unwrap();
+    assert_eq!(project.chapters.len(), 3);
+    // 两章开头的同一张图提取为一张章节插图，正文里不再内联。
+    assert_eq!(project.chapter_images.len(), 1);
+    let image = &project.chapter_images[0];
+    assert!(image.image.starts_with("data:image/png;base64,"));
+    assert_eq!(image.placement, ChapterImagePlacement::Above);
+    assert_eq!(
+        image.scope,
+        ChapterImageScope::Chapters {
+            ids: vec!["chapter-1".into(), "chapter-2".into()]
+        }
+    );
+    assert!(!project.chapters[0].html.contains("<img"));
+    assert!(!project.chapters[1].html.contains("<img"));
+    // 只出现一次的正文插图保持原样。
+    assert!(project.chapters[2].html.contains("<img"));
 }
 
 #[test]

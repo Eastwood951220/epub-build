@@ -10,6 +10,10 @@ describe('two-line headings', () => {
     expect(splitHeading('第87章 论·中式恐怖与西式恐怖', 'chapter')).toEqual({ number: '第87章', name: '论·中式恐怖与西式恐怖' })
     expect(splitHeading('第一卷：少年', 'volume')).toEqual({ number: '第一卷', name: '少年' })
     expect(splitHeading('前言', 'chapter')).toEqual({ number: '', name: '前言' })
+    expect(splitHeading('第壹卷：少年', 'volume')).toEqual({ number: '第壹卷', name: '少年' })
+    expect(splitHeading('第贰拾叁章 归途', 'chapter')).toEqual({ number: '第贰拾叁章', name: '归途' })
+    expect(splitHeading('卷丨叁丨', 'volume')).toEqual({ number: '卷丨叁丨', name: '' })
+    expect(splitHeading('卷丨玖丨 天下', 'volume')).toEqual({ number: '卷丨玖丨', name: '天下' })
   })
 
   it('resolves four line styles while preserving legacy title settings', () => {

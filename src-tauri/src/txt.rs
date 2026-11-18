@@ -147,7 +147,7 @@ fn parse_book_inner(
 /// new paragraph on the next line; any other ending means the line was wrapped
 /// at a fixed width and the next line continues it.
 const PARAGRAPH_END: &str = "。！？!?…～：:“”‘’\"'「」『』（）()【】《》〈〉";
-const CHINESE_NUMERALS: &str = "零〇一二三四五六七八九十百千万两";
+const CHINESE_NUMERALS: &str = "零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟萬";
 const VOLUME_UNITS: &str = "卷部篇";
 const CHAPTER_UNITS: &str = "章节回集";
 
@@ -210,7 +210,7 @@ fn is_volume_heading(line: &str) -> bool {
 
 /// Parses `第<number><unit>…` headings and returns the unit character.
 /// Rejects body sentences that merely begin like a heading.
-fn heading_unit(line: &str) -> Option<char> {
+pub(crate) fn heading_unit(line: &str) -> Option<char> {
     let line = line.trim();
     let length = line.chars().count();
     if line.is_empty() || length > 40 {
@@ -254,4 +254,16 @@ fn heading_unit(line: &str) -> Option<char> {
         return Some(unit);
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_upper_case_chinese_headings() {
+        assert!(is_chapter_heading("第壹章 开端"));
+        assert!(is_chapter_heading("第贰拾叁回 归途"));
+        assert_eq!(heading_unit("第壹卷 少年"), Some('卷'));
+    }
 }

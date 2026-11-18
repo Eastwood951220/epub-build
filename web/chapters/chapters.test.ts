@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import type { EditableChapter } from '../book/model'
+import type { EditableChapter, Volume } from '../book/model'
 import {
   arabicToChinese,
   chineseNumberToArabic,
   formatChapterTitle,
+  formatVolumeTitle,
   looksLikeChapterHeading,
   parseChapterTitle,
   renumberChapters,
+  renumberVolumeTitles,
   mergeWithPrevious,
   normalizeChapters,
   plainText,
@@ -180,6 +182,39 @@ describe('chapter title numbering', () => {
     expect(parseChapterTitle('Chapter 3: Return')).toEqual({ number: 3, unit: null, text: 'Return' })
     expect(parseChapterTitle('尾声')).toEqual({ number: null, unit: null, text: '尾声' })
     expect(parseChapterTitle('第四卷 S2赛季')).toEqual({ number: 4, unit: '卷', text: 'S2赛季' })
+  })
+
+  it('reads and writes upper-case Chinese numerals', () => {
+    expect(chineseNumberToArabic('壹')).toBe(1)
+    expect(chineseNumberToArabic('拾壹')).toBe(11)
+    expect(chineseNumberToArabic('贰拾叁')).toBe(23)
+    expect(chineseNumberToArabic('壹佰零壹')).toBe(101)
+    expect(arabicToChinese(1, true)).toBe('壹')
+    expect(arabicToChinese(10, true)).toBe('拾')
+    expect(arabicToChinese(11, true)).toBe('拾壹')
+    expect(arabicToChinese(23, true)).toBe('贰拾叁')
+    expect(arabicToChinese(10005, true)).toBe('壹萬零伍')
+    expect(parseChapterTitle('第壹卷 少年')).toEqual({ number: 1, unit: '卷', text: '少年' })
+    expect(parseChapterTitle('第贰拾叁章 归途')).toEqual({ number: 23, unit: '章', text: '归途' })
+    expect(parseChapterTitle('卷丨叁丨')).toEqual({ number: 3, unit: '卷', text: '' })
+    expect(parseChapterTitle('卷丨玖丨 天下')).toEqual({ number: 9, unit: '卷', text: '天下' })
+    expect(formatChapterTitle(3, '新章', 'upper')).toBe('第叁章 新章')
+    expect(formatVolumeTitle(2, '少年', 'upper')).toBe('第贰卷 少年')
+  })
+
+  it('numbers every volume in one go, keeping its name and unit', () => {
+    const volumes: Volume[] = [
+      { id: 'v1', title: '卷壹丨风起', style: {}, openingImage: null, closingImage: null },
+      { id: 'v2', title: '第2部 云涌', style: {}, openingImage: null, closingImage: null },
+      { id: 'v3', title: '未命名卷', style: {}, openingImage: null, closingImage: null },
+    ]
+    const upper = renumberVolumeTitles(volumes, { style: 'upper', start: 1, unit: '卷' })
+    expect(upper.renamed).toBe(3)
+    expect(upper.volumes.map(volume => volume.title)).toEqual(['第壹卷 风起', '第贰卷 云涌', '第叁卷 未命名卷'])
+    const kept = renumberVolumeTitles(volumes, { style: 'chinese', start: 1 })
+    expect(kept.volumes[1].title).toBe('第二部 云涌')
+    const stripped = renumberVolumeTitles(volumes, { style: 'name', start: 1 })
+    expect(stripped.volumes[0].title).toBe('风起')
   })
 
   it('formats the numbered dun style', () => {
