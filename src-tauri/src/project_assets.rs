@@ -371,6 +371,8 @@ mod tests {
                 mime: "font/ttf".into(),
                 data_uri: uri("font/ttf", b"font-data"),
             }],
+            source_stylesheets: vec![],
+            source_style_assets: vec![],
             volumes: vec![],
             chapters: vec![
                 EditableChapter {

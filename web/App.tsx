@@ -16,6 +16,8 @@ import {
   noteBoxStyle, previewStyles, reindexChapterLinks, type BookStyle, type EditableChapter, type NoteBoxStyle, type Project, type Volume,
 } from './book/model'
 import { PreserveIds } from './chapters/PreserveIds'
+import { SourceClass } from './chapters/SourceClass'
+import { scopeSourceCss } from './book/sourceCss'
 import { NoteMarker } from './chapters/NoteMarker'
 import { NoteBox, NoteBoxTitle, appendNoteBox, hasNoteBox, removeNoteBoxes } from './chapters/NoteBox'
 import { orderedNotes } from './chapters/notes'
@@ -109,6 +111,7 @@ export default function App() {
     extensions: [
       StarterKit.configure({ link: { openOnClick: false, HTMLAttributes: { target: null, rel: null } } }),
       PreserveIds,
+      SourceClass,
       NoteMarker,
       NoteBox,
       NoteBoxTitle,
@@ -790,6 +793,7 @@ export default function App() {
   const noteBox = noteBoxStyle(book.style)
   const availableFonts = fontOptions(fontChoices, book.fontAssets ?? [], assetsByKind.font)
   const embeddedFontCss = (book.fontAssets ?? []).filter(font => /^EPUBStudio(?:Library)?Font\d+$/.test(font.family) && /^font\/(ttf|otf|woff|woff2)$/.test(font.mime) && new RegExp(`^data:${font.mime};base64,[A-Za-z0-9+/=]+$`).test(font.dataUri)).map(font => `@font-face{font-family:'${font.family}';src:url('${font.dataUri}')}`).join('\n') + (previewAsset?.kind === 'font' ? `@font-face{font-family:'${sharedFontFamily(previewAsset.id)}';src:url('${previewAsset.dataUri}')}` : '')
+  const importedCss = useMemo(() => scopeSourceCss(book.sourceStylesheets, book.sourceStyleAssets), [book.sourceStylesheets, book.sourceStyleAssets])
 
   const reviewDialog = review ? <ChapterReview
     key={reviewKey}
@@ -875,6 +879,7 @@ export default function App() {
 
   return <div className="app-shell">
     <style>{embeddedFontCss}</style>
+    <style>{importedCss}</style>
     <header className="topbar" onMouseDown={startWindowDrag}>
       <div className="brand"><div className="brand-icon"><BookOpen size={22} strokeWidth={2.3} /></div><div><strong>EPUB Studio</strong><span>电子书编辑器</span></div></div>
       <div className="document-state"><span className="document-name">{book.title}</span><span className={dirty ? 'state-dot dirty' : 'state-dot'} />{dirty ? '未保存' : '已保存'}</div>

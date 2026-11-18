@@ -12,7 +12,8 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use super::{
     BookStyle, ChapterImage, ChapterImagePlacement, ChapterImageScope, ChapterNote,
-    EditableChapter, EmbeddedFont, HeadingLineStyle, NoteBoxStyle, Project, TitleLayout, VolumeStyle, escape_xml,
+    EditableChapter, EmbeddedFont, HeadingLineStyle, NoteBoxStyle, Project, SourceStylesheet, TitleLayout, VolumeStyle, escape_xml,
+    epub_import::resolve_zip_path,
     font_export::{book_characters, smaller_font_subset},
     validate_project,
 };
@@ -195,6 +196,24 @@ fn font_format(mime: &str) -> Option<&'static str> {
         "font/woff2" => Some("woff2"),
         _ => None,
     }
+}
+
+fn source_asset_ext(mime: &str) -> Option<&'static str> {
+    match mime {
+        "font/ttf" => Some("ttf"), "font/otf" => Some("otf"), "font/woff" => Some("woff"), "font/woff2" => Some("woff2"),
+        "image/png" => Some("png"), "image/jpeg" => Some("jpg"), "image/gif" => Some("gif"), "image/webp" => Some("webp"), "image/svg+xml" => Some("svg"),
+        _ => None,
+    }
+}
+
+fn rewrite_source_css_urls(stylesheet: &SourceStylesheet, files: &HashMap<String, String>) -> String {
+    let urls = Regex::new(r#"(?i)url\(\s*['\"]?([^)'\"]+)['\"]?\s*\)"#).unwrap();
+    urls.replace_all(&stylesheet.css, |capture: &regex::Captures<'_>| {
+        resolve_zip_path(&stylesheet.path, capture[1].trim()).ok()
+            .and_then(|path| files.get(&path))
+            .map(|name| format!("url('../source-assets/{name}')"))
+            .unwrap_or_else(|| capture[0].to_string())
+    }).into_owned()
 }
 
 fn css_align(value: &str) -> &'static str {
@@ -626,9 +645,30 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
         css.as_bytes(),
         compressed,
     )?;
+    let source_asset_names: HashMap<String, String> = book.source_style_assets.iter().enumerate()
+        .filter_map(|(index, asset)| source_asset_ext(&asset.mime).map(|ext| (asset.path.clone(), format!("source-{}.{}", index + 1, ext))))
+        .collect();
+    let source_css_hrefs: Vec<String> = book.source_stylesheets.iter().enumerate()
+        .map(|(index, _)| format!("../styles/source-{}.css", index + 1))
+        .collect();
+    for (index, stylesheet) in book.source_stylesheets.iter().enumerate() {
+        let css = rewrite_source_css_urls(stylesheet, &source_asset_names);
+        write_zip(&mut zip, &format!("OEBPS/styles/source-{}.css", index + 1), css.as_bytes(), compressed)?;
+    }
     let mut manifest = String::from(
         "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/><item id=\"css\" href=\"styles/book.css\" media-type=\"text/css\"/>",
     );
+    for (index, _) in book.source_stylesheets.iter().enumerate() {
+        manifest.push_str(&format!("<item id=\"source-css-{}\" href=\"styles/source-{}.css\" media-type=\"text/css\"/>", index + 1, index + 1));
+    }
+    for (index, asset) in book.source_style_assets.iter().enumerate() {
+        let Some(name) = source_asset_names.get(&asset.path) else { continue };
+        let (header, encoded) = asset.data_uri.split_once(',').ok_or("原书 CSS 资源数据无效")?;
+        if header != format!("data:{};base64", asset.mime) { return Err("原书 CSS 资源格式无效".into()); }
+        let bytes = STANDARD.decode(encoded).map_err(|e| format!("原书 CSS 资源编码错误：{e}"))?;
+        manifest.push_str(&format!("<item id=\"source-asset-{}\" href=\"source-assets/{name}\" media-type=\"{}\"/>", index + 1, asset.mime));
+        write_zip(&mut zip, &format!("OEBPS/source-assets/{name}"), &bytes, compressed)?;
+    }
     let characters = if fonts.is_empty() {
         Default::default()
     } else {
@@ -691,6 +731,7 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
                     &body,
                     Some("../styles/book.css"),
                     Some(&format!("volume-{vn}")),
+                    &source_css_hrefs,
                 );
                 write_zip(
                     &mut zip,
@@ -767,6 +808,7 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
             &body,
             Some("../styles/book.css"),
             Some(&chapter_class),
+            &source_css_hrefs,
         );
         write_zip(
             &mut zip,
@@ -801,7 +843,7 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
     write_zip(
         &mut zip,
         "OEBPS/nav.xhtml",
-        xhtml("目录", &nav, Some("styles/book.css"), None).as_bytes(),
+        xhtml("目录", &nav, Some("styles/book.css"), None, &[]).as_bytes(),
         compressed,
     )?;
     let modified = OffsetDateTime::now_utc()
@@ -834,10 +876,11 @@ fn write_zip<W: Write + Seek>(
     zip.write_all(bytes).map_err(|e| e.to_string())
 }
 
-fn xhtml(title: &str, body: &str, css: Option<&str>, body_class: Option<&str>) -> String {
-    let stylesheet = css
+fn xhtml(title: &str, body: &str, css: Option<&str>, body_class: Option<&str>, extra_css: &[String]) -> String {
+    let mut stylesheet = css
         .map(|path| format!("<link rel=\"stylesheet\" type=\"text/css\" href=\"{path}\"/>"))
         .unwrap_or_default();
+    for path in extra_css { stylesheet.push_str(&format!("<link rel=\"stylesheet\" type=\"text/css\" href=\"{}\"/>", escape_xml(path))); }
     let class = body_class
         .map(|value| format!(" class=\"{}\"", escape_xml(value)))
         .unwrap_or_default();
@@ -962,5 +1005,23 @@ mod image_tests {
         assert!(css.contains("background-size:contain"));
         assert!(css.contains("background:#222222"));
         assert!(css.contains("color:#333333"));
+    }
+}
+
+#[cfg(test)]
+mod source_css_tests {
+    use super::*;
+
+    #[test]
+    fn rewrites_original_font_and_image_urls_for_export() {
+        let stylesheet = SourceStylesheet { path: "OEBPS/Styles/original.css".into(), css: "@font-face{src:url('../Fonts/talk.otf')}span.talk{color:#863020;background:url('../Images/paper.png')}".into() };
+        let files = HashMap::from([
+            ("OEBPS/Fonts/talk.otf".to_string(), "font-1.otf".to_string()),
+            ("OEBPS/Images/paper.png".to_string(), "image-2.png".to_string()),
+        ]);
+        let css = rewrite_source_css_urls(&stylesheet, &files);
+        assert!(css.contains("url('../source-assets/font-1.otf')"));
+        assert!(css.contains("url('../source-assets/image-2.png')"));
+        assert!(css.contains("span.talk{color:#863020"));
     }
 }

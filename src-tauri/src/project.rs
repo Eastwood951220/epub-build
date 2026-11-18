@@ -46,6 +46,10 @@ pub struct Project {
     pub closing_image: Option<String>,
     #[serde(default)]
     pub font_assets: Vec<EmbeddedFont>,
+    #[serde(default)]
+    pub source_stylesheets: Vec<SourceStylesheet>,
+    #[serde(default)]
+    pub source_style_assets: Vec<SourceStyleAsset>,
     /// Shared volume library; chapters point at a volume through `volume_id`.
     #[serde(default)]
     pub volumes: Vec<Volume>,
@@ -85,6 +89,21 @@ pub struct Volume {
 pub struct EmbeddedFont {
     pub family: String,
     pub name: String,
+    pub mime: String,
+    pub data_uri: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceStylesheet {
+    pub path: String,
+    pub css: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceStyleAsset {
+    pub path: String,
     pub mime: String,
     pub data_uri: String,
 }
@@ -391,6 +410,8 @@ pub fn import_txt_with_patterns(
         opening_image: None,
         closing_image: None,
         font_assets: Vec::new(),
+        source_stylesheets: Vec::new(),
+        source_style_assets: Vec::new(),
         volumes,
         chapters,
     })

@@ -135,6 +135,9 @@ export interface Project {
   noteMarkerImage?: string | null
   noteDetailImage?: string | null
   fontAssets: EmbeddedFont[]
+  /** Original EPUB stylesheets and their referenced files, kept for editing and export. */
+  sourceStylesheets?: SourceStylesheet[]
+  sourceStyleAssets?: SourceStyleAsset[]
   volumes: Volume[]
   chapters: EditableChapter[]
 }
@@ -145,6 +148,9 @@ export interface EmbeddedFont {
   mime: string
   dataUri: string
 }
+
+export interface SourceStylesheet { path: string; css: string }
+export interface SourceStyleAsset { path: string; mime: string; dataUri: string }
 
 export const fontChoices = [
   { value: 'serif', label: '衬线字体' },
@@ -179,6 +185,8 @@ export function createEmptyProject(): Project {
     noteMarkerImage: null,
     noteDetailImage: null,
     fontAssets: [],
+    sourceStylesheets: [],
+    sourceStyleAssets: [],
     volumes: [],
     chapters: [{ id: crypto.randomUUID(), title: '第一章', html: '<p></p>' }],
   }

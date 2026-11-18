@@ -2,11 +2,11 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use percent_encoding::percent_decode_str;
 use regex::Regex;
 use roxmltree::{Document, Node, ParsingOptions};
-use std::{collections::HashMap, fs, io::Read, path::Path};
+use std::{collections::{HashMap, HashSet}, fs, io::Read, path::Path};
 use zip::ZipArchive;
 
 use super::{
-    BookStyle, ChapterImage, ChapterImagePlacement, ChapterImageScope, ChapterNote,
+    BookStyle, ChapterImage, ChapterImagePlacement, ChapterImageScope, ChapterNote, SourceStyleAsset, SourceStylesheet,
     EditableChapter, Project, TitleLayout, Volume, VolumeStyle, escape_xml,
 };
 
@@ -54,6 +54,39 @@ fn parse_xml(text: &str) -> Result<Document<'_>, roxmltree::Error> {
         ..ParsingOptions::default()
     };
     Document::parse_with_options(text, options)
+}
+
+fn source_asset_mime(path: &str) -> Option<&'static str> {
+    match path.rsplit('.').next()?.to_ascii_lowercase().as_str() {
+        "ttf" => Some("font/ttf"),
+        "otf" => Some("font/otf"),
+        "woff" => Some("font/woff"),
+        "woff2" => Some("font/woff2"),
+        _ => image_mime(path),
+    }
+}
+
+fn read_source_styles(archive: &mut ZipArchive<fs::File>, paths: &[String]) -> (Vec<SourceStylesheet>, Vec<SourceStyleAsset>) {
+    let urls = Regex::new(r#"(?i)url\(\s*['\"]?([^)'\"]+)['\"]?\s*\)"#).unwrap();
+    let mut styles = Vec::new();
+    let mut assets = Vec::new();
+    let mut seen = HashSet::new();
+    for path in paths {
+        let Ok(css) = zip_text(archive, path) else { continue };
+        for found in urls.captures_iter(&css) {
+            let reference = found[1].trim();
+            if reference.starts_with("data:") || reference.contains("://") { continue }
+            let Ok(asset_path) = resolve_zip_path(path, reference) else { continue };
+            let Some(mime) = source_asset_mime(&asset_path) else { continue };
+            if !seen.insert(asset_path.clone()) { continue }
+            let Ok(mut entry) = archive.by_name(&asset_path) else { continue };
+            let mut bytes = Vec::new();
+            if entry.read_to_end(&mut bytes).is_err() { continue }
+            assets.push(SourceStyleAsset { path: asset_path, mime: mime.into(), data_uri: format!("data:{mime};base64,{}", STANDARD.encode(bytes)) });
+        }
+        styles.push(SourceStylesheet { path: path.clone(), css });
+    }
+    (styles, assets)
 }
 
 pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
@@ -105,6 +138,11 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
             ))
         })
         .collect();
+    let css_paths: Vec<String> = manifest_node.children()
+        .filter(|node| node.has_tag_name("item") && (node.attribute("media-type") == Some("text/css") || node.attribute("href").is_some_and(|href| href.to_ascii_lowercase().ends_with(".css"))))
+        .filter_map(|node| resolve_zip_path(&opf_path, node.attribute("href")?).ok())
+        .collect();
+    let (source_stylesheets, source_style_assets) = read_source_styles(&mut archive, &css_paths);
     let cover_id = manifest
         .iter()
         .find(|(_, (_, properties))| {
@@ -399,6 +437,8 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
         opening_image: None,
         closing_image: None,
         font_assets: Vec::new(),
+        source_stylesheets,
+        source_style_assets,
         volumes,
         chapters,
     })
@@ -603,7 +643,7 @@ fn zip_text(archive: &mut ZipArchive<fs::File>, path: &str) -> Result<String, St
     Ok(content)
 }
 
-fn resolve_zip_path(base_file: &str, href: &str) -> Result<String, String> {
+pub(super) fn resolve_zip_path(base_file: &str, href: &str) -> Result<String, String> {
     let href = href.split(['#', '?']).next().unwrap_or("");
     let decoded = percent_decode_str(href)
         .decode_utf8()
@@ -830,12 +870,13 @@ fn import_node(
         other => other,
     };
     let style = safe_inline_style(node.attribute("style").unwrap_or(""));
+    let class = node.attribute("class").map(|value| format!(" class=\"{}\"", escape_xml(value))).unwrap_or_default();
     let attr = if style.is_empty() {
         String::new()
     } else {
         format!(" style=\"{}\"", escape_xml(&style))
     };
-    format!("<{safe_tag}{id}{attr}>{children}</{safe_tag}>")
+    format!("<{safe_tag}{id}{class}{attr}>{children}</{safe_tag}>")
 }
 
 fn safe_inline_style(style: &str) -> String {
@@ -873,4 +914,31 @@ fn safe_inline_style(style: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(";")
+}
+
+#[cfg(test)]
+mod source_style_tests {
+    use super::*;
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    #[test]
+    fn keeps_source_classes_and_reads_css_font_files() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let mut writer = zip::ZipWriter::new(file.reopen().unwrap());
+        writer.start_file("OEBPS/Styles/original.css", SimpleFileOptions::default()).unwrap();
+        writer.write_all(b"@font-face{font-family:Talk;src:url('../Fonts/talk.otf')}span.talk{font-family:Talk;color:#863020}").unwrap();
+        writer.start_file("OEBPS/Fonts/talk.otf", SimpleFileOptions::default()).unwrap();
+        writer.write_all(b"font bytes").unwrap();
+        writer.finish().unwrap();
+        let mut archive = ZipArchive::new(file.reopen().unwrap()).unwrap();
+        let xml = parse_xml("<body><p class='special-p2'>A <span class='talk'>B</span></p></body>").unwrap();
+        let html = import_node(xml.descendants().find(|node| node.has_tag_name("p")).unwrap(), "OEBPS/Text/1.xhtml", &mut archive);
+        assert!(html.contains("class=\"special-p2\""));
+        assert!(html.contains("class=\"talk\""));
+        let (styles, assets) = read_source_styles(&mut archive, &["OEBPS/Styles/original.css".into()]);
+        assert_eq!(styles[0].path, "OEBPS/Styles/original.css");
+        assert_eq!(assets[0].path, "OEBPS/Fonts/talk.otf");
+        assert_eq!(assets[0].mime, "font/otf");
+    }
 }
