@@ -9,9 +9,10 @@ export function fontOptions(
   defaults: { value: string; label: string }[],
   embedded: EmbeddedFont[],
   library: AssetSummary[],
+  imported: { value: string; label: string }[] = [],
 ): { value: string; label: string }[] {
   const choices = [...defaults, ...embedded.map(font => ({ value: font.family, label: font.name })),
-    ...library.filter(asset => asset.kind === 'font').map(asset => ({ value: sharedFontFamily(asset.id), label: asset.name }))]
+    ...library.filter(asset => asset.kind === 'font').map(asset => ({ value: sharedFontFamily(asset.id), label: asset.name })), ...imported]
   const seen = new Set<string>()
   return choices.filter(choice => {
     if (seen.has(choice.value)) return false

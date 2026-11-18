@@ -17,7 +17,7 @@ import {
 } from './book/model'
 import { PreserveIds } from './chapters/PreserveIds'
 import { SourceClass } from './chapters/SourceClass'
-import { scopeSourceCss } from './book/sourceCss'
+import { scopeSourceCss, sourceFontOptions } from './book/sourceCss'
 import { NoteMarker } from './chapters/NoteMarker'
 import { NoteBox, NoteBoxTitle, appendNoteBox, hasNoteBox, removeNoteBoxes } from './chapters/NoteBox'
 import { orderedNotes } from './chapters/notes'
@@ -791,7 +791,8 @@ export default function App() {
 
   const selectedStyle = previewStyles(chapterStyle(book, selectedChapter)) as CSSProperties
   const noteBox = noteBoxStyle(book.style)
-  const availableFonts = fontOptions(fontChoices, book.fontAssets ?? [], assetsByKind.font)
+  const importedFonts = useMemo(() => sourceFontOptions(book.sourceStylesheets, book.sourceStyleAssets), [book.sourceStylesheets, book.sourceStyleAssets])
+  const availableFonts = fontOptions(fontChoices, book.fontAssets ?? [], assetsByKind.font, importedFonts)
   const embeddedFontCss = (book.fontAssets ?? []).filter(font => /^EPUBStudio(?:Library)?Font\d+$/.test(font.family) && /^font\/(ttf|otf|woff|woff2)$/.test(font.mime) && new RegExp(`^data:${font.mime};base64,[A-Za-z0-9+/=]+$`).test(font.dataUri)).map(font => `@font-face{font-family:'${font.family}';src:url('${font.dataUri}')}`).join('\n') + (previewAsset?.kind === 'font' ? `@font-face{font-family:'${sharedFontFamily(previewAsset.id)}';src:url('${previewAsset.dataUri}')}` : '')
   const importedCss = useMemo(() => scopeSourceCss(book.sourceStylesheets, book.sourceStyleAssets), [book.sourceStylesheets, book.sourceStyleAssets])
   const customCssPreview = useMemo(() => scopeSourceCss([{ path: 'OEBPS/styles/custom.css', css: book.customCss ?? '' }]), [book.customCss])

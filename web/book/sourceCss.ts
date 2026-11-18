@@ -22,6 +22,27 @@ function scopedSelector(selector: string, root: string): string {
   return `${root} ${withoutRoot}`
 }
 
+/** Font faces backed by files retained from the imported EPUB. */
+export function sourceFontOptions(stylesheets: SourceStylesheet[] = [], assets: SourceStyleAsset[] = []): { value: string; label: string }[] {
+  const paths = new Set(assets.map(asset => asset.path))
+  const families = new Set<string>()
+  for (const stylesheet of stylesheets) {
+    try {
+      postcss.parse(stylesheet.css).walkAtRules('font-face', rule => {
+        let family = ''
+        let src = ''
+        rule.walkDecls(declaration => {
+          if (declaration.prop.toLowerCase() === 'font-family') family = declaration.value.trim().replace(/^['"]|['"]$/g, '')
+          if (declaration.prop.toLowerCase() === 'src') src = declaration.value
+        })
+        const url = /url\(\s*['"]?([^)'\"]+)['"]?\s*\)/i.exec(src)?.[1]
+        if (family && url && paths.has(resolvePath(stylesheet.path, url.trim()))) families.add(family)
+      })
+    } catch { /* The original text remains available for export. */ }
+  }
+  return [...families].map(value => ({ value, label: `${value}（原书）` }))
+}
+
 /** Applies an EPUB's CSS to book content without styling the editor chrome. */
 export function scopeSourceCss(stylesheets: SourceStylesheet[] = [], assets: SourceStyleAsset[] = []): string {
   const byPath = new Map(assets.map(asset => [asset.path, asset.dataUri]))
