@@ -648,18 +648,25 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
     let source_asset_names: HashMap<String, String> = book.source_style_assets.iter().enumerate()
         .filter_map(|(index, asset)| source_asset_ext(&asset.mime).map(|ext| (asset.path.clone(), format!("source-{}.{}", index + 1, ext))))
         .collect();
-    let source_css_hrefs: Vec<String> = book.source_stylesheets.iter().enumerate()
+    let mut source_css_hrefs: Vec<String> = book.source_stylesheets.iter().enumerate()
         .map(|(index, _)| format!("../styles/source-{}.css", index + 1))
         .collect();
     for (index, stylesheet) in book.source_stylesheets.iter().enumerate() {
         let css = rewrite_source_css_urls(stylesheet, &source_asset_names);
         write_zip(&mut zip, &format!("OEBPS/styles/source-{}.css", index + 1), css.as_bytes(), compressed)?;
     }
+    if !book.custom_css.trim().is_empty() {
+        write_zip(&mut zip, "OEBPS/styles/custom.css", book.custom_css.as_bytes(), compressed)?;
+        source_css_hrefs.push("../styles/custom.css".into());
+    }
     let mut manifest = String::from(
         "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/><item id=\"css\" href=\"styles/book.css\" media-type=\"text/css\"/>",
     );
     for (index, _) in book.source_stylesheets.iter().enumerate() {
         manifest.push_str(&format!("<item id=\"source-css-{}\" href=\"styles/source-{}.css\" media-type=\"text/css\"/>", index + 1, index + 1));
+    }
+    if !book.custom_css.trim().is_empty() {
+        manifest.push_str("<item id=\"custom-css\" href=\"styles/custom.css\" media-type=\"text/css\"/>");
     }
     for (index, asset) in book.source_style_assets.iter().enumerate() {
         let Some(name) = source_asset_names.get(&asset.path) else { continue };
@@ -1011,6 +1018,7 @@ mod image_tests {
 #[cfg(test)]
 mod source_css_tests {
     use super::*;
+    use std::io::Read;
 
     #[test]
     fn rewrites_original_font_and_image_urls_for_export() {
@@ -1023,5 +1031,24 @@ mod source_css_tests {
         assert!(css.contains("url('../source-assets/font-1.otf')"));
         assert!(css.contains("url('../source-assets/image-2.png')"));
         assert!(css.contains("span.talk{color:#863020"));
+    }
+
+    #[test]
+    fn exports_original_and_custom_css_in_order() {
+        let folder = tempfile::tempdir().unwrap();
+        let source = folder.path().join("book.txt");
+        std::fs::write(&source, "第一章 开始\n正文").unwrap();
+        let mut book = super::super::import_txt_with_patterns(&source, None, None).unwrap();
+        book.source_stylesheets.push(SourceStylesheet { path: "OEBPS/Styles/original.css".into(), css: "span.talk{color:#863020}".into() });
+        book.custom_css = "span.talk{color:#ff0000}".into();
+        let output = folder.path().join("book.epub");
+        export_epub(&book, &output).unwrap();
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(output).unwrap()).unwrap();
+        let mut chapter = String::new();
+        zip.by_name("OEBPS/text/chapter-1.xhtml").unwrap().read_to_string(&mut chapter).unwrap();
+        assert!(chapter.find("source-1.css").unwrap() < chapter.find("custom.css").unwrap());
+        let mut custom = String::new();
+        zip.by_name("OEBPS/styles/custom.css").unwrap().read_to_string(&mut custom).unwrap();
+        assert_eq!(custom, "span.talk{color:#ff0000}");
     }
 }

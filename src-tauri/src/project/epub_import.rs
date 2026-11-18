@@ -439,6 +439,7 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
         font_assets: Vec::new(),
         source_stylesheets,
         source_style_assets,
+        custom_css: String::new(),
         volumes,
         chapters,
     })

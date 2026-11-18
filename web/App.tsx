@@ -65,7 +65,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(book.chapters[0].id)
   const [view, setView] = useState<View>('edit')
   const [settingsTab, setSettingsTab] = useState<'settings' | 'library'>('settings')
-  const [settingsDialog, setSettingsDialog] = useState<'titles' | 'notes' | 'images' | 'background' | null>(null)
+  const [settingsDialog, setSettingsDialog] = useState<'titles' | 'notes' | 'images' | 'background' | 'css' | null>(null)
   const [appSettingsOpen, setAppSettingsOpen] = useState(false)
   const [assetKind, setAssetKind] = useState<AssetKind>('font')
   const [assetsByKind, setAssetsByKind] = useState<Record<AssetKind, AssetSummary[]>>({ font: [], image: [] })
@@ -794,6 +794,7 @@ export default function App() {
   const availableFonts = fontOptions(fontChoices, book.fontAssets ?? [], assetsByKind.font)
   const embeddedFontCss = (book.fontAssets ?? []).filter(font => /^EPUBStudio(?:Library)?Font\d+$/.test(font.family) && /^font\/(ttf|otf|woff|woff2)$/.test(font.mime) && new RegExp(`^data:${font.mime};base64,[A-Za-z0-9+/=]+$`).test(font.dataUri)).map(font => `@font-face{font-family:'${font.family}';src:url('${font.dataUri}')}`).join('\n') + (previewAsset?.kind === 'font' ? `@font-face{font-family:'${sharedFontFamily(previewAsset.id)}';src:url('${previewAsset.dataUri}')}` : '')
   const importedCss = useMemo(() => scopeSourceCss(book.sourceStylesheets, book.sourceStyleAssets), [book.sourceStylesheets, book.sourceStyleAssets])
+  const customCssPreview = useMemo(() => scopeSourceCss([{ path: 'OEBPS/styles/custom.css', css: book.customCss ?? '' }]), [book.customCss])
 
   const reviewDialog = review ? <ChapterReview
     key={reviewKey}
@@ -880,6 +881,7 @@ export default function App() {
   return <div className="app-shell">
     <style>{embeddedFontCss}</style>
     <style>{importedCss}</style>
+    <style>{customCssPreview}</style>
     <header className="topbar" onMouseDown={startWindowDrag}>
       <div className="brand"><div className="brand-icon"><BookOpen size={22} strokeWidth={2.3} /></div><div><strong>EPUB Studio</strong><span>电子书编辑器</span></div></div>
       <div className="document-state"><span className="document-name">{book.title}</span><span className={dirty ? 'state-dot dirty' : 'state-dot'} />{dirty ? '未保存' : '已保存'}</div>
@@ -945,6 +947,7 @@ export default function App() {
           <button type="button" onClick={() => setSettingsDialog('notes')}>备注与小贴士<small>标记、图片、边框</small></button>
           <button type="button" onClick={() => setSettingsDialog('images')}>章节插图<small>{book.chapterImages.length} 张</small></button>
           <button type="button" onClick={() => setSettingsDialog('background')}>章节背景<small>{book.chapterBackgroundImage ? '已设置' : '未设置'}</small></button>
+          <button type="button" onClick={() => setSettingsDialog('css')}>CSS 样式<small>{book.sourceStylesheets?.length ?? 0} 份原书样式</small></button>
         </div></section>
       </> : <LibraryPanel
           kind={assetKind}
@@ -964,7 +967,7 @@ export default function App() {
     </div>
     <footer className="statusbar"><span className={error ? 'status-error' : ''}>{error || notice}</span><span>{chapterLoading ? '正在加载章节…' : busy ? '处理中…' : `${book.chapters.length} 章 · ${view === 'edit' ? '编辑模式' : '预览模式'}`}</span></footer>
     {appSettingsOpen && <SettingsDialog onClose={() => setAppSettingsOpen(false)}/>}
-    {settingsDialog && <AdvancedSettingsDialog title={{ titles: '标题与卷名', notes: '备注与小贴士', images: '章节插图', background: '章节背景' }[settingsDialog]} onClose={() => setSettingsDialog(null)}>
+    {settingsDialog && <AdvancedSettingsDialog title={{ titles: '标题与卷名', notes: '备注与小贴士', images: '章节插图', background: '章节背景', css: 'CSS 样式' }[settingsDialog]} onClose={() => setSettingsDialog(null)}>
       {settingsDialog === 'titles' ? <>
         <HeadingStyleControls label="章节序号" styleKey="chapterNumberStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
         <section className="setting-section"><h3>章节序号背景图</h3><p className="setting-help">图片铺在“第 X 章”文字后面，适合竹简、卷轴等装饰。</p>
@@ -1008,6 +1011,14 @@ export default function App() {
           onPickImage={pickImage}
           onChange={entries => updateBook(previous => ({ ...previous, chapterImages: entries }))}
         />
+      </> : settingsDialog === 'css' ? <>
+        <section className="setting-section"><h3>原书 CSS</h3><p className="setting-help">导入的样式表和引用的字体、图片会保存在工程中，预览与导出继续使用。原书样式只读，下面可以追加覆盖规则。</p>
+          {(book.sourceStylesheets ?? []).map((stylesheet, index) => <details className="source-css-file" key={`${stylesheet.path}-${index}`}><summary title={stylesheet.path}>{stylesheet.path.split('/').at(-1)}</summary><textarea aria-label={`原书 CSS ${index + 1}`} readOnly value={stylesheet.css}/></details>)}
+          {!book.sourceStylesheets?.length && <p className="setting-help">当前工程没有导入的 CSS 文件。</p>}
+        </section>
+        <section className="setting-section"><h3>追加 CSS</h3><p className="setting-help">规则仅作用于章节正文，保留原书 CSS。可覆盖对话颜色等样式，例如 <code>.talk {'{'} color: #863020; {'}'}</code>。</p>
+          <textarea className="source-css-editor" aria-label="追加 CSS" spellCheck={false} value={book.customCss ?? ''} onChange={event => updateBook(previous => ({ ...previous, customCss: event.target.value }))} placeholder=".talk { color: #863020; }"/>
+        </section>
       </> : <>
         <section className="setting-section"><h3>章节背景</h3><p className="setting-help">背景用于所有章节正文页，编辑、预览与 EPUB 导出保持一致；卷标题页使用卷设置中的图片。</p>
           {book.chapterBackgroundImage && <img className="chapter-background-preview" src={book.chapterBackgroundImage} alt="章节背景预览"/>}

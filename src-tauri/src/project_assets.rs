@@ -373,6 +373,7 @@ mod tests {
             }],
             source_stylesheets: vec![],
             source_style_assets: vec![],
+            custom_css: String::new(),
             volumes: vec![],
             chapters: vec![
                 EditableChapter {

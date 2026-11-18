@@ -50,6 +50,8 @@ pub struct Project {
     pub source_stylesheets: Vec<SourceStylesheet>,
     #[serde(default)]
     pub source_style_assets: Vec<SourceStyleAsset>,
+    #[serde(default)]
+    pub custom_css: String,
     /// Shared volume library; chapters point at a volume through `volume_id`.
     #[serde(default)]
     pub volumes: Vec<Volume>,
@@ -412,6 +414,7 @@ pub fn import_txt_with_patterns(
         font_assets: Vec::new(),
         source_stylesheets: Vec::new(),
         source_style_assets: Vec::new(),
+        custom_css: String::new(),
         volumes,
         chapters,
     })

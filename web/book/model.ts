@@ -138,6 +138,8 @@ export interface Project {
   /** Original EPUB stylesheets and their referenced files, kept for editing and export. */
   sourceStylesheets?: SourceStylesheet[]
   sourceStyleAssets?: SourceStyleAsset[]
+  /** Rules authored in EPUB Studio; original imported files remain intact. */
+  customCss?: string
   volumes: Volume[]
   chapters: EditableChapter[]
 }
@@ -187,6 +189,7 @@ export function createEmptyProject(): Project {
     fontAssets: [],
     sourceStylesheets: [],
     sourceStyleAssets: [],
+    customCss: '',
     volumes: [],
     chapters: [{ id: crypto.randomUUID(), title: '第一章', html: '<p></p>' }],
   }
