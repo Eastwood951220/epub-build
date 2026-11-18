@@ -300,7 +300,7 @@ fn style_css(style: &BookStyle, fonts: &[EmbeddedFont]) -> String {
         }
     }
     let mut css = format!(
-        "{faces}body{{font-family:{};font-size:{}px;line-height:{:.2};text-align:{};margin:0 auto;max-width:42em;padding:1.5em;color:#20302e}}h1{{font-family:{};font-size:{}px;text-align:{};line-height:1.35;margin:1.2em 0}}p{{margin:0 0 .9em{}}}img{{display:block;margin:1.2em auto;max-width:100%;height:auto}}.chapter-image{{text-align:center;margin:1.5em 0}}.chapter-image img{{margin:0 auto}}",
+        "{faces}body{{font-family:{};font-size:{}px;line-height:{:.2};text-align:{};margin:0 auto;max-width:42em;padding:1.5em;color:#20302e}}h1{{font-family:{};font-size:{}px;text-align:{};line-height:1.35;margin:1.2em 0}}p{{margin:0 0 {:.2}em{}}}.chapter-heading{{margin-bottom:{}px}}img{{display:block;margin:1.2em auto;max-width:100%;height:auto}}.chapter-image{{text-align:center;margin:1.5em 0}}.chapter-image img{{margin:0 auto}}",
         css_font(&style.body_font_family, fonts),
         style.body_font_size.clamp(10, 48),
         style.body_line_height.clamp(1.2, 3.0),
@@ -308,11 +308,13 @@ fn style_css(style: &BookStyle, fonts: &[EmbeddedFont]) -> String {
         css_font(&style.title_font_family, fonts),
         style.title_font_size.clamp(16, 72),
         css_align(&style.title_align),
+        style.body_paragraph_spacing.clamp(0.0, 3.0),
         if style.body_first_line_indent {
             ";text-indent:2em"
         } else {
             ""
-        }
+        },
+        style.chapter_body_spacing.clamp(0, 160),
     );
     css.push_str(&format!(
         ".note-marker{{font-size:{}px;color:{};vertical-align:super;line-height:0;text-decoration:none}}.chapter-notes{{font-family:{};font-size:{}px;color:{};text-align:left;line-height:1.6;border-top:1px solid #dce7e4;margin-top:2em;padding-top:1em}}.chapter-notes h2{{font:inherit;font-weight:bold;margin:0 0 .7em}}.chapter-notes p{{margin:0 0 .6em;text-indent:0}}",
@@ -374,6 +376,8 @@ fn resolve_style(base: &BookStyle, overrides: &VolumeStyle) -> BookStyle {
             .unwrap_or_else(|| base.body_font_family.clone()),
         body_font_size: overrides.body_font_size.unwrap_or(base.body_font_size),
         body_line_height: overrides.body_line_height.unwrap_or(base.body_line_height),
+        body_paragraph_spacing: base.body_paragraph_spacing,
+        chapter_body_spacing: base.chapter_body_spacing,
         body_align: overrides
             .body_align
             .clone()

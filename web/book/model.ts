@@ -5,6 +5,8 @@ export interface BookStyle {
   bodyFontFamily: string
   bodyFontSize: number
   bodyLineHeight: number
+  bodyParagraphSpacing: number
+  chapterBodySpacing: number
   bodyAlign: string
   bodyFirstLineIndent: boolean
   noteFontFamily?: string
@@ -114,7 +116,7 @@ export function createEmptyProject(): Project {
     language: 'zh-CN',
     style: {
       titleFontFamily: 'serif', titleFontSize: 30, titleAlign: 'center',
-      bodyFontFamily: 'serif', bodyFontSize: 18, bodyLineHeight: 1.8, bodyAlign: 'justify', bodyFirstLineIndent: false,
+      bodyFontFamily: 'serif', bodyFontSize: 18, bodyLineHeight: 1.8, bodyParagraphSpacing: 0.9, chapterBodySpacing: 46, bodyAlign: 'justify', bodyFirstLineIndent: false,
       noteFontFamily: 'serif', noteFontSize: 14, noteColor: '#526963', noteMarkerSize: 12, noteMarkerColor: '#0b8578',
     },
     coverImage: null,
@@ -174,6 +176,8 @@ export function resolveStyle(base: BookStyle, overrides: VolumeStyle = {}): Book
     bodyFontFamily: overrides.bodyFontFamily ?? base.bodyFontFamily,
     bodyFontSize: overrides.bodyFontSize ?? base.bodyFontSize,
     bodyLineHeight: overrides.bodyLineHeight ?? base.bodyLineHeight,
+    bodyParagraphSpacing: base.bodyParagraphSpacing ?? 0.9,
+    chapterBodySpacing: base.chapterBodySpacing ?? 46,
     bodyAlign: overrides.bodyAlign ?? base.bodyAlign,
     bodyFirstLineIndent: base.bodyFirstLineIndent ?? false,
     chapterNumberStyle: resolveLine(base.chapterNumberStyle),
@@ -242,6 +246,8 @@ export function previewStyles(style: BookStyle): Record<string, string> {
     '--body-font': fontStack(style.bodyFontFamily),
     '--body-size': `${style.bodyFontSize}px`,
     '--body-line-height': String(style.bodyLineHeight),
+    '--body-paragraph-spacing': `${Math.min(3, Math.max(0, style.bodyParagraphSpacing ?? 0.9))}em`,
+    '--chapter-body-spacing': `${Math.min(160, Math.max(0, style.chapterBodySpacing ?? 46))}px`,
     '--body-align': style.bodyAlign,
     '--body-indent': style.bodyFirstLineIndent ? '2em' : '0',
     '--note-font': fontStack(style.noteFontFamily ?? style.bodyFontFamily),

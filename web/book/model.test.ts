@@ -28,6 +28,15 @@ describe('project model', () => {
     expect(previewStyles(resolveStyle(book.style, { bodyFontSize: 24 }))['--body-indent']).toBe('2em')
   })
 
+  it('uses configurable paragraph and chapter title spacing in preview and volume chapters', () => {
+    const book = createEmptyProject()
+    book.style.bodyParagraphSpacing = 1.4
+    book.style.chapterBodySpacing = 72
+    const css = previewStyles(resolveStyle(book.style, { bodyFontSize: 24 }))
+    expect(css['--body-paragraph-spacing']).toBe('1.4em')
+    expect(css['--chapter-body-spacing']).toBe('72px')
+  })
+
   it('keeps links pointing to the same chapter after reordering', () => {
     const before = [
       { id: 'a', title: 'One', html: '<p><a href="chapter-2.xhtml#end">next</a></p>' },

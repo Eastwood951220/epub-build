@@ -171,12 +171,42 @@ fn optional_first_line_indent_survives_save_and_controls_epub_css() {
     let mut archive = ZipArchive::new(fs::File::open(epub).unwrap()).unwrap();
     let mut css = String::new();
     archive.by_name("OEBPS/styles/book.css").unwrap().read_to_string(&mut css).unwrap();
-    assert!(css.contains("p{margin:0 0 .9em;text-indent:2em}"));
+    assert!(css.contains("p{margin:0 0 0.90em;text-indent:2em}"));
 
     let mut legacy: serde_json::Value = serde_json::from_slice(&fs::read(&saved).unwrap()).unwrap();
     legacy["style"].as_object_mut().unwrap().remove("bodyFirstLineIndent");
     fs::write(&saved, serde_json::to_vec(&legacy).unwrap()).unwrap();
     assert!(!load_project(&saved).unwrap().style.body_first_line_indent);
+}
+
+#[test]
+fn paragraph_and_chapter_title_spacing_survive_save_and_control_epub_css() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(&input, "第一章 开始\n正文").unwrap();
+    let mut project = import_book(&input).unwrap();
+    project.style.body_paragraph_spacing = 1.4;
+    project.style.chapter_body_spacing = 72;
+    let saved = dir.path().join("book.json");
+    save_project(&project, &saved).unwrap();
+    let loaded = load_project(&saved).unwrap();
+    assert_eq!(loaded.style.body_paragraph_spacing, 1.4);
+    assert_eq!(loaded.style.chapter_body_spacing, 72);
+    let epub = dir.path().join("book.epub");
+    export_epub(&loaded, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(epub).unwrap()).unwrap();
+    let mut css = String::new();
+    archive.by_name("OEBPS/styles/book.css").unwrap().read_to_string(&mut css).unwrap();
+    assert!(css.contains("p{margin:0 0 1.40em"));
+    assert!(css.contains(".chapter-heading{margin-bottom:72px}"));
+
+    let mut legacy: serde_json::Value = serde_json::from_slice(&fs::read(&saved).unwrap()).unwrap();
+    legacy["style"].as_object_mut().unwrap().remove("bodyParagraphSpacing");
+    legacy["style"].as_object_mut().unwrap().remove("chapterBodySpacing");
+    fs::write(&saved, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let old = load_project(&saved).unwrap();
+    assert_eq!(old.style.body_paragraph_spacing, 0.9);
+    assert_eq!(old.style.chapter_body_spacing, 46);
 }
 
 #[test]
