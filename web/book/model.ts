@@ -7,6 +7,7 @@ export interface BookStyle {
   bodyLineHeight: number
   bodyParagraphSpacing: number
   chapterBodySpacing: number
+  chapterBackgroundSize?: string
   bodyAlign: string
   bodyFirstLineIndent: boolean
   noteFontFamily?: string
@@ -120,6 +121,8 @@ export interface Project {
   coverImage: string | null
   /** Images shown at chapter titles; each entry picks its own chapters or volumes. */
   chapterImages: ChapterImage[]
+  /** Shared decorative background for chapter pages. */
+  chapterBackgroundImage?: string | null
   /** Shared inline note and note-detail icons, embedded for portable projects. */
   noteMarkerImage?: string | null
   noteDetailImage?: string | null
@@ -155,10 +158,12 @@ export function createEmptyProject(): Project {
     style: {
       titleFontFamily: 'serif', titleFontSize: 30, titleAlign: 'center',
       bodyFontFamily: 'serif', bodyFontSize: 18, bodyLineHeight: 1.8, bodyParagraphSpacing: 0.9, chapterBodySpacing: 46, bodyAlign: 'justify', bodyFirstLineIndent: false,
+      chapterBackgroundSize: 'cover',
       noteFontFamily: 'serif', noteFontSize: 14, noteColor: '#526963', noteMarkerSize: 12, noteMarkerColor: '#0b8578', noteDetailImageSize: 12,
     },
     coverImage: null,
     chapterImages: [],
+    chapterBackgroundImage: null,
     noteMarkerImage: null,
     noteDetailImage: null,
     fontAssets: [],
@@ -193,6 +198,17 @@ export function chapterImagesAt(book: Pick<Project, 'chapterImages'>, chapter: P
   return chapterImagesFor(book, chapter).filter(entry => entry.placement === placement)
 }
 
+export function chapterBackgroundStyle(book: Pick<Project, 'chapterBackgroundImage' | 'style'>): Record<string, string> {
+  if (!book.chapterBackgroundImage) return {}
+  const size = book.style.chapterBackgroundSize
+  return {
+    backgroundImage: `url("${book.chapterBackgroundImage}")`,
+    backgroundSize: size === 'contain' || size === '100% 100%' || size === '100% auto' ? size : 'cover',
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'center top',
+  }
+}
+
 export function createVolume(index: number): Volume {
   return { id: crypto.randomUUID(), title: `第${index}卷`, style: {}, openingImage: null, closingImage: null }
 }
@@ -218,6 +234,7 @@ export function resolveStyle(base: BookStyle, overrides: VolumeStyle = {}): Book
     bodyLineHeight: overrides.bodyLineHeight ?? base.bodyLineHeight,
     bodyParagraphSpacing: base.bodyParagraphSpacing ?? 0.9,
     chapterBodySpacing: base.chapterBodySpacing ?? 46,
+    chapterBackgroundSize: base.chapterBackgroundSize ?? 'cover',
     bodyAlign: overrides.bodyAlign ?? base.bodyAlign,
     bodyFirstLineIndent: base.bodyFirstLineIndent ?? false,
     chapterNumberStyle: resolveLine(base.chapterNumberStyle),

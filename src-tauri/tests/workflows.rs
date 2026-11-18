@@ -748,7 +748,7 @@ fn volumes_get_their_own_pages_styles_and_images() {
         .unwrap()
         .read_to_string(&mut chapter)
         .unwrap();
-    assert!(chapter.contains("class=\"volume-2\""));
+    assert!(chapter.contains("class=\"chapter-page volume-2\""));
 
     let mut second = String::new();
     archive
@@ -932,6 +932,55 @@ fn imports_bordered_tip_box_as_editable_note_box() {
     let project = import_book(&path).unwrap();
     assert_eq!(project.chapters.len(), 1);
     assert!(project.chapters[0].html.contains("<aside class=\"note-box\"><p class=\"note-box-title\">小贴士</p><p>边框里的备注</p></aside>"));
+}
+
+#[test]
+fn chapter_background_survives_project_and_epub_round_trip() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("source.txt");
+    fs::write(&source, "第一章\n正文").unwrap();
+    let mut project = import_book(&source).unwrap();
+    project.chapter_background_image = Some("data:image/png;base64,YmdpbWFnZQ==".into());
+    project.style.chapter_background_size = "100% 100%".into();
+    let saved = dir.path().join("book.json");
+    save_project(&project, &saved).unwrap();
+    let project = load_project(&saved).unwrap();
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(&epub).unwrap()).unwrap();
+    let mut css = String::new();
+    archive.by_name("OEBPS/styles/book.css").unwrap().read_to_string(&mut css).unwrap();
+    assert!(css.contains("body.chapter-page{background-image:url('../images/image-1.png');background-size:100% 100%;"));
+    let mut chapter = String::new();
+    archive.by_name("OEBPS/text/chapter-1.xhtml").unwrap().read_to_string(&mut chapter).unwrap();
+    assert!(chapter.contains("<body class=\"chapter-page\">"));
+    drop(archive);
+    let imported = import_book(&epub).unwrap();
+    assert_eq!(imported.chapter_background_image, project.chapter_background_image);
+    assert_eq!(imported.style.chapter_background_size, "100% 100%");
+}
+
+#[test]
+fn epub_import_recognizes_body_background_shorthand() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("illustrated.epub");
+    let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("META-INF/container.xml", options).unwrap();
+    std::io::Write::write_all(&mut zip, br#"<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>"#).unwrap();
+    zip.start_file("OEBPS/content.opf", options).unwrap();
+    std::io::Write::write_all(&mut zip, br#"<package><metadata><title>Illustrated</title></metadata><manifest><item id="c" href="book.xhtml"/><item id="css" href="styles/book.css"/></manifest><spine><itemref idref="c"/></spine></package>"#).unwrap();
+    zip.start_file("OEBPS/book.xhtml", options).unwrap();
+    std::io::Write::write_all(&mut zip, b"<html><body><h1>Chapter</h1><p>Text</p></body></html>").unwrap();
+    zip.start_file("OEBPS/styles/book.css", options).unwrap();
+    std::io::Write::write_all(&mut zip, b"body { background: url(../images/bg.png); background-size: 100% 100%; } body.introduction-page { background: url(other.png) }").unwrap();
+    zip.start_file("OEBPS/images/bg.png", options).unwrap();
+    std::io::Write::write_all(&mut zip, b"background").unwrap();
+    zip.finish().unwrap();
+
+    let project = import_book(&path).unwrap();
+    assert_eq!(project.chapter_background_image.as_deref(), Some("data:image/png;base64,YmFja2dyb3VuZA=="));
+    assert_eq!(project.style.chapter_background_size, "100% 100%");
 }
 
 #[test]

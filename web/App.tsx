@@ -12,7 +12,7 @@ import {
   Layers, Layers2, LibraryBig, ListTree, Plus, Save, Search, Settings2, Trash2,
 } from 'lucide-react'
 import {
-  chapterGroups, chapterImagesAt, chapterStyle, chapterVolume, createChapterImage, createEmptyProject, createVolume, fontChoices,
+  chapterBackgroundStyle, chapterGroups, chapterImagesAt, chapterStyle, chapterVolume, createChapterImage, createEmptyProject, createVolume, fontChoices,
   noteBoxStyle, previewStyles, reindexChapterLinks, type BookStyle, type EditableChapter, type NoteBoxStyle, type Project, type Volume,
 } from './book/model'
 import { PreserveIds } from './chapters/PreserveIds'
@@ -29,10 +29,11 @@ import VolumeBatchDialog from './settings/VolumeBatchDialog'
 import ChapterImagesSettings from './settings/ChapterImagesSettings'
 import LibraryPanel from './library/LibraryPanel'
 import { fontOptions, prepareFontSelection, sharedFontFamily } from './library/fontSelection'
-import CacheSettings from './settings/CacheSettings'
+import SettingsDialog from './settings/SettingsDialog'
 import Home from './library/Home'
 import HeadingTitle from './chapters/HeadingTitle'
 import HeadingStyleControls, { type HeadingStyleKey } from './settings/HeadingStyleControls'
+import AdvancedSettingsDialog from './settings/AdvancedSettingsDialog'
 import HexColorInput from './settings/HexColorInput'
 import EditorToolbar from './editor/EditorToolbar'
 import ChapterSidebarList from './chapters/ChapterSidebarList'
@@ -61,7 +62,9 @@ export default function App() {
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
   const [selectedId, setSelectedId] = useState(book.chapters[0].id)
   const [view, setView] = useState<View>('edit')
-  const [settingsTab, setSettingsTab] = useState<'settings' | 'library' | 'cache'>('settings')
+  const [settingsTab, setSettingsTab] = useState<'settings' | 'library'>('settings')
+  const [settingsDialog, setSettingsDialog] = useState<'titles' | 'notes' | 'images' | 'background' | null>(null)
+  const [appSettingsOpen, setAppSettingsOpen] = useState(false)
   const [assetKind, setAssetKind] = useState<AssetKind>('font')
   const [assetsByKind, setAssetsByKind] = useState<Record<AssetKind, AssetSummary[]>>({ font: [], image: [] })
   const [previewAsset, setPreviewAsset] = useState<AssetData | null>(null)
@@ -266,6 +269,13 @@ export default function App() {
     if (!image) return
     setNoteBox('backgroundImage', image)
     setNotice('已设置小贴士背景图')
+  }
+
+  async function chooseChapterBackground() {
+    const image = await pickImage()
+    if (!image) return
+    updateBook(previous => ({ ...previous, chapterBackgroundImage: image }))
+    setNotice('已设置章节背景图')
   }
 
   function chooseBookFont(key: 'bodyFontFamily' | 'noteFontFamily', family: string) {
@@ -855,6 +865,7 @@ export default function App() {
       <div className="document-state"><span className="document-name">{book.title}</span><span className={dirty ? 'state-dot dirty' : 'state-dot'} />{dirty ? '未保存' : '已保存'}</div>
       <div className="top-actions">
         <button className="button subtle" disabled={busy} onClick={goHome}><House size={17}/>工程列表</button>
+        <button className="button subtle" type="button" onClick={() => setAppSettingsOpen(true)}><Settings2 size={17}/>应用设置</button>
         <span className="divider" />
         <button className="button subtle" disabled={busy} onClick={saveProjectFile}><FolderOpen size={17}/>导出项目文件</button>
         <button className="button outline" disabled={busy || !dirty} onClick={saveProject}><Save size={17}/>保存工程</button>
@@ -896,7 +907,7 @@ export default function App() {
           <div className="chapter-title-field"><label htmlFor="chapter-title">章节标题</label><input id="chapter-title" value={selectedChapter.title} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, title: event.target.value } : chapter) }))} /><select aria-label="章节标题排列" value={selectedChapter.titleLayout ?? 'stacked'} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, titleLayout: event.target.value as 'inline' | 'stacked' } : chapter) }))}><option value="stacked">分两行</option><option value="inline">同一行</option></select></div>
           <EditorToolbar editor={editor} availableFonts={availableFonts} showEditorImages={showEditorImages} onSelectFont={chooseSelectedTextFont} onAddNote={addNote} onAddNoteBox={addNoteBox} onChooseImage={() => void chooseImage('inline')} onToggleImages={() => setShowEditorImages(value => !value)}/>
           <div className={`editor-stage ${showEditorImages ? "" : "images-hidden"}`} aria-busy={chapterLoading}>
-          <div className="editor-scroll" ref={editorScrollRef}><div className={`paper edit-paper${book.noteMarkerImage ? ' image-note-markers' : ''}`} style={{ ...selectedStyle, '--note-marker-image': book.noteMarkerImage ? `url("${book.noteMarkerImage}")` : 'none' } as CSSProperties}>{showEditorImages && chapterImagesAt(book, selectedChapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}<HeadingTitle title={selectedChapter.title || '未命名章节'} kind="chapter" layout={selectedChapter.titleLayout}/>{showEditorImages && chapterImagesAt(book, selectedChapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}<EditorContent editor={editor} className="chapter-editor" />{orderedNotes(selectedChapter).length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{orderedNotes(selectedChapter).map((note, index) => <div className="note-edit-row" key={note.id}>{book.noteDetailImage ? <img className="note-detail-image" src={book.noteDetailImage} alt={`备注 ${index + 1}`}/> : <span>[{index + 1}]</span>}<textarea aria-label={`备注 ${index + 1}`} placeholder="输入备注内容" value={note.text} onChange={event => updateNote(note.id, event.target.value)}/><button title="删除备注" aria-label={`删除备注 ${index + 1}`} onClick={() => deleteNote(note.id)}><Trash2 size={16}/></button></div>)}</section>}</div></div>
+          <div className="editor-scroll" ref={editorScrollRef}><div className={`paper edit-paper${book.noteMarkerImage ? ' image-note-markers' : ''}`} style={{ ...selectedStyle, ...chapterBackgroundStyle(book), '--note-marker-image': book.noteMarkerImage ? `url("${book.noteMarkerImage}")` : 'none' } as CSSProperties}>{showEditorImages && chapterImagesAt(book, selectedChapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}<HeadingTitle title={selectedChapter.title || '未命名章节'} kind="chapter" layout={selectedChapter.titleLayout}/>{showEditorImages && chapterImagesAt(book, selectedChapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}<EditorContent editor={editor} className="chapter-editor" />{orderedNotes(selectedChapter).length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{orderedNotes(selectedChapter).map((note, index) => <div className="note-edit-row" key={note.id}>{book.noteDetailImage ? <img className="note-detail-image" src={book.noteDetailImage} alt={`备注 ${index + 1}`}/> : <span>[{index + 1}]</span>}<textarea aria-label={`备注 ${index + 1}`} placeholder="输入备注内容" value={note.text} onChange={event => updateNote(note.id, event.target.value)}/><button title="删除备注" aria-label={`删除备注 ${index + 1}`} onClick={() => deleteNote(note.id)}><Trash2 size={16}/></button></div>)}</section>}</div></div>
           {chapterLoading && <div className="chapter-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>正在加载章节正文…</div>}
           </div>
         </> : <div className="preview-scroll" ref={previewScrollRef} onClick={handlePreviewClick}>
@@ -905,36 +916,17 @@ export default function App() {
       </main>
       <div className="panel-resizer" role="separator" aria-label="调整设置栏宽度" aria-orientation="vertical" aria-valuemin={RIGHT_PANEL_MIN_WIDTH} aria-valuemax={480} aria-valuenow={settingsWidth} tabIndex={0} onPointerDown={event => beginPanelResize('right', event)} onPointerMove={movePanelResize} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }} onKeyDown={event => keyboardPanelResize('right', event)}/>
 
-      <aside className="settings-panel" aria-label="图书设置与资源库"><div className="settings-inner"><div className="settings-tabs" role="tablist" aria-label="侧边栏"><button role="tab" aria-selected={settingsTab === 'settings'} className={settingsTab === 'settings' ? 'active' : ''} onClick={() => setSettingsTab('settings')}>图书设置</button><button role="tab" aria-selected={settingsTab === 'library'} className={settingsTab === 'library' ? 'active' : ''} onClick={() => setSettingsTab('library')}><LibraryBig size={15}/>资源库</button><button role="tab" aria-selected={settingsTab === 'cache'} className={settingsTab === 'cache' ? 'active' : ''} onClick={() => setSettingsTab('cache')}><Settings2 size={15}/>缓存</button></div>{settingsTab === 'settings' ? <><div className="panel-heading"><div><span className="eyebrow">统一管理</span><h2>图书设置</h2></div></div>
+      <aside className="settings-panel" aria-label="图书设置与资源库"><div className="settings-inner"><div className="settings-tabs" role="tablist" aria-label="侧边栏"><button role="tab" aria-selected={settingsTab === 'settings'} className={settingsTab === 'settings' ? 'active' : ''} onClick={() => setSettingsTab('settings')}>图书设置</button><button role="tab" aria-selected={settingsTab === 'library'} className={settingsTab === 'library' ? 'active' : ''} onClick={() => setSettingsTab('library')}><LibraryBig size={15}/>资源库</button></div>{settingsTab === 'settings' ? <><div className="panel-heading"><div><span className="eyebrow">统一管理</span><h2>图书设置</h2></div></div>
         <section className="setting-section"><h3>基本信息</h3><label>书名<input value={book.title} onChange={event => updateBook(previous => ({ ...previous, title: event.target.value }))}/></label><label>作者<input value={book.author} onChange={event => updateBook(previous => ({ ...previous, author: event.target.value }))}/></label><label>语言<input value={book.language} onChange={event => updateBook(previous => ({ ...previous, language: event.target.value }))}/></label></section>
         <section className="setting-section"><h3>图书封面</h3><p className="setting-help">创建工程时可留空，保存后会显示在工程书架，并写入 EPUB。</p>{book.coverImage ? <div className="cover-slot"><img src={book.coverImage} alt="图书封面预览"/><div><button className="button outline" onClick={() => chooseImage('coverImage')}>更换封面</button><button className="button subtle" onClick={() => updateBook(previous => ({ ...previous, coverImage: null }))}>移除</button></div></div> : <button className="image-add" onClick={() => chooseImage('coverImage')}><ImagePlus size={17}/>上传封面</button>}</section>
-        <HeadingStyleControls label="章节序号" styleKey="chapterNumberStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
-        <HeadingStyleControls label="章节名称" styleKey="chapterNameStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
-        <HeadingStyleControls label="卷序号" styleKey="volumeNumberStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
-        <HeadingStyleControls label="卷名称" styleKey="volumeNameStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
         <section className="setting-section"><h3>正文</h3><label>字体<select value={book.style.bodyFontFamily} onChange={event => chooseBookFont('bodyFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>字号<input type="number" min="10" max="48" value={book.style.bodyFontSize} onChange={event => setStyle('bodyFontSize', Number(event.target.value))}/></label><label>行距<input type="number" min="1.2" max="3" step="0.1" value={book.style.bodyLineHeight} onChange={event => setStyle('bodyLineHeight', Number(event.target.value))}/></label></div><div className="field-row"><label>段落间距（em）<input type="number" min="0" max="3" step="0.1" value={book.style.bodyParagraphSpacing ?? 0.9} onChange={event => setStyle('bodyParagraphSpacing', Number(event.target.value))}/></label><label>章节名距正文（px）<input type="number" min="0" max="160" step="2" value={book.style.chapterBodySpacing ?? 46} onChange={event => setStyle('chapterBodySpacing', Number(event.target.value))}/></label></div><label>对齐<select value={book.style.bodyAlign} onChange={event => setStyle('bodyAlign', event.target.value)}><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label><label className="setting-checkbox"><input type="checkbox" checked={!!book.style.bodyFirstLineIndent} onChange={event => setStyle('bodyFirstLineIndent', event.target.checked)}/>首行缩进两字（2em）</label></section>
-        <section className="setting-section"><h3>备注样式</h3><label>备注字体<select value={book.style.noteFontFamily ?? 'serif'} onChange={event => chooseBookFont('noteFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>备注字号<input type="number" min="10" max="32" value={book.style.noteFontSize ?? 14} onChange={event => setStyle('noteFontSize', Number(event.target.value))}/></label><label>备注颜色<HexColorInput label="备注颜色" value={book.style.noteColor ?? '#526963'} onChange={color => setStyle('noteColor', color)}/></label></div><div className="field-row"><label>正文标记大小（px）<input type="number" min="8" max="32" value={book.style.noteMarkerSize ?? 12} onChange={event => setStyle('noteMarkerSize', Number(event.target.value))}/></label><label>标记颜色<HexColorInput label="标记颜色" value={book.style.noteMarkerColor ?? '#0b8578'} onChange={color => setStyle('noteMarkerColor', color)}/></label></div><div className="field-row"><label>明细图标大小（px）<input type="number" min="8" max="32" value={book.style.noteDetailImageSize ?? 12} onChange={event => setStyle('noteDetailImageSize', Number(event.target.value))}/></label></div>
-          <div className="note-image-setting"><span>正文备注标记图片</span><div>{book.noteMarkerImage && <img src={book.noteMarkerImage} alt="正文备注标记图片预览"/>}<button className="button" type="button" onClick={() => void chooseNoteImage('noteMarkerImage')}>{book.noteMarkerImage ? '更换图片' : '选择图片'}</button>{book.noteMarkerImage && <button className="button" type="button" onClick={() => updateBook(previous => ({ ...previous, noteMarkerImage: null }))}>恢复数字</button>}</div></div>
-          <div className="note-image-setting"><span>备注明细标记图片</span><div>{book.noteDetailImage && <img src={book.noteDetailImage} alt="备注明细标记图片预览"/>}<button className="button" type="button" onClick={() => void chooseNoteImage('noteDetailImage')}>{book.noteDetailImage ? '更换图片' : '选择图片'}</button>{book.noteDetailImage && <button className="button" type="button" onClick={() => updateBook(previous => ({ ...previous, noteDetailImage: null }))}>恢复数字</button>}</div></div>
-          <div className="note-box-setting"><span>小贴士框（带边框的备注区）</span>
-            <div className="field-row"><label>边框粗细（px，0 为无边框）<input type="number" min="0" max="8" step="0.5" value={noteBox.borderWidth} onChange={event => setNoteBox('borderWidth', Number(event.target.value))}/></label><label>边框线型<select value={noteBox.borderStyle} onChange={event => setNoteBox('borderStyle', event.target.value)}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option><option value="double">双线</option><option value="none">无边框</option></select></label></div>
-            <div className="field-row"><label>边框颜色<HexColorInput label="小贴士边框颜色" value={noteBox.borderColor} onChange={color => setNoteBox('borderColor', color)}/></label><label>圆角（px）<input type="number" min="0" max="40" value={noteBox.cornerRadius} onChange={event => setNoteBox('cornerRadius', Number(event.target.value))}/></label></div>
-            <div className="field-row"><label>标题底色<HexColorInput label="小贴士标题底色" value={noteBox.titleBackground} onChange={color => setNoteBox('titleBackground', color)}/></label><label>标题文字色<HexColorInput label="小贴士标题文字色" value={noteBox.titleColor} onChange={color => setNoteBox('titleColor', color)}/></label></div>
-            <div className="field-row"><label>正文颜色<HexColorInput label="小贴士正文颜色" value={noteBox.textColor} onChange={color => setNoteBox('textColor', color)}/></label><label className="setting-checkbox"><input type="checkbox" checked={!!noteBox.backgroundColor} onChange={event => setNoteBox('backgroundColor', event.target.checked ? '#fff8f0' : '')}/>使用背景色</label>{noteBox.backgroundColor && <HexColorInput label="小贴士背景色" value={noteBox.backgroundColor || '#fff8f0'} onChange={color => setNoteBox('backgroundColor', color)}/>}</div>
-            <div className="note-image-setting"><span>背景图（可选，与背景色叠加）</span><div>{noteBox.backgroundImage && <img src={noteBox.backgroundImage} alt="小贴士背景图预览"/>}<button className="button" type="button" onClick={() => void chooseNoteBoxBackground()}>{noteBox.backgroundImage ? '更换图片' : '选择图片'}</button>{noteBox.backgroundImage && <button className="button" type="button" onClick={() => setNoteBox('backgroundImage', null)}>移除图片</button>}</div></div>
-            {noteBox.backgroundImage && <label>背景图填充方式<select value={noteBox.backgroundSize} onChange={event => setNoteBox('backgroundSize', event.target.value)}><option value="cover">铺满并裁剪</option><option value="contain">完整显示</option><option value="100% 100%">拉伸铺满</option><option value="auto">原始大小</option></select></label>}
-          </div>
-        </section>
-        <ChapterImagesSettings
-          entries={book.chapterImages}
-          chapters={book.chapters}
-          volumes={book.volumes}
-          selectedChapterId={selectedId}
-          busy={busy}
-          onPickImage={pickImage}
-          onChange={entries => updateBook(previous => ({ ...previous, chapterImages: entries }))}
-        />
-      </> : settingsTab === 'library' ? <LibraryPanel
+        <section className="setting-section"><h3>详细设置</h3><div className="settings-shortcuts">
+          <button type="button" onClick={() => setSettingsDialog('titles')}>标题与卷名<small>4 组样式</small></button>
+          <button type="button" onClick={() => setSettingsDialog('notes')}>备注与小贴士<small>标记、图片、边框</small></button>
+          <button type="button" onClick={() => setSettingsDialog('images')}>章节插图<small>{book.chapterImages.length} 张</small></button>
+          <button type="button" onClick={() => setSettingsDialog('background')}>章节背景<small>{book.chapterBackgroundImage ? '已设置' : '未设置'}</small></button>
+        </div></section>
+      </> : <LibraryPanel
           kind={assetKind}
           assets={assets}
           counts={{ font: assetsByKind.font.length, image: assetsByKind.image.length }}
@@ -948,9 +940,47 @@ export default function App() {
           onClosePreview={() => setPreviewAsset(null)}
           onUseFont={(asset, target) => void useFont(asset, target)}
           onUseImage={(asset, target) => void useLibraryImage(asset, target)}
-        /> : <CacheSettings/>}</div></aside>
+        />}</div></aside>
     </div>
     <footer className="statusbar"><span className={error ? 'status-error' : ''}>{error || notice}</span><span>{chapterLoading ? '正在加载章节…' : busy ? '处理中…' : `${book.chapters.length} 章 · ${view === 'edit' ? '编辑模式' : '预览模式'}`}</span></footer>
+    {appSettingsOpen && <SettingsDialog onClose={() => setAppSettingsOpen(false)}/>}
+    {settingsDialog && <AdvancedSettingsDialog title={{ titles: '标题与卷名', notes: '备注与小贴士', images: '章节插图', background: '章节背景' }[settingsDialog]} onClose={() => setSettingsDialog(null)}>
+      {settingsDialog === 'titles' ? <>
+        <HeadingStyleControls label="章节序号" styleKey="chapterNumberStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
+        <HeadingStyleControls label="章节名称" styleKey="chapterNameStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
+        <HeadingStyleControls label="卷序号" styleKey="volumeNumberStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
+        <HeadingStyleControls label="卷名称" styleKey="volumeNameStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
+      </> : settingsDialog === 'notes' ? <>
+        <section className="setting-section"><h3>备注样式</h3><label>备注字体<select value={book.style.noteFontFamily ?? 'serif'} onChange={event => chooseBookFont('noteFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>备注字号<input type="number" min="10" max="32" value={book.style.noteFontSize ?? 14} onChange={event => setStyle('noteFontSize', Number(event.target.value))}/></label><label>备注颜色<HexColorInput label="备注颜色" value={book.style.noteColor ?? '#526963'} onChange={color => setStyle('noteColor', color)}/></label></div><div className="field-row"><label>正文标记大小（px）<input type="number" min="8" max="32" value={book.style.noteMarkerSize ?? 12} onChange={event => setStyle('noteMarkerSize', Number(event.target.value))}/></label>{!book.noteMarkerImage && <label>标记颜色<HexColorInput label="标记颜色" value={book.style.noteMarkerColor ?? '#0b8578'} onChange={color => setStyle('noteMarkerColor', color)}/></label>}</div><div className="field-row"><label>明细图标大小（px）<input type="number" min="8" max="32" value={book.style.noteDetailImageSize ?? 12} onChange={event => setStyle('noteDetailImageSize', Number(event.target.value))}/></label></div>
+          <div className="note-image-setting"><span>正文备注标记图片</span><div>{book.noteMarkerImage && <img src={book.noteMarkerImage} alt="正文备注标记图片预览"/>}<button className="button" type="button" onClick={() => void chooseNoteImage('noteMarkerImage')}>{book.noteMarkerImage ? '更换图片' : '选择图片'}</button>{book.noteMarkerImage && <button className="button" type="button" onClick={() => updateBook(previous => ({ ...previous, noteMarkerImage: null }))}>恢复数字</button>}</div></div>
+          <div className="note-image-setting"><span>备注明细标记图片</span><div>{book.noteDetailImage && <img src={book.noteDetailImage} alt="备注明细标记图片预览"/>}<button className="button" type="button" onClick={() => void chooseNoteImage('noteDetailImage')}>{book.noteDetailImage ? '更换图片' : '选择图片'}</button>{book.noteDetailImage && <button className="button" type="button" onClick={() => updateBook(previous => ({ ...previous, noteDetailImage: null }))}>恢复数字</button>}</div></div>
+          <div className="note-box-setting"><span>小贴士框（带边框的备注区）</span>
+            <div className="field-row"><label>边框粗细（px，0 为无边框）<input type="number" min="0" max="8" step="0.5" value={noteBox.borderWidth} onChange={event => setNoteBox('borderWidth', Number(event.target.value))}/></label><label>边框线型<select value={noteBox.borderStyle} onChange={event => setNoteBox('borderStyle', event.target.value)}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option><option value="double">双线</option><option value="none">无边框</option></select></label></div>
+            <div className="field-row"><label>边框颜色<HexColorInput label="小贴士边框颜色" value={noteBox.borderColor} onChange={color => setNoteBox('borderColor', color)}/></label><label>圆角（px）<input type="number" min="0" max="40" value={noteBox.cornerRadius} onChange={event => setNoteBox('cornerRadius', Number(event.target.value))}/></label></div>
+            <div className="field-row"><label>标题底色<HexColorInput label="小贴士标题底色" value={noteBox.titleBackground} onChange={color => setNoteBox('titleBackground', color)}/></label><label>标题文字色<HexColorInput label="小贴士标题文字色" value={noteBox.titleColor} onChange={color => setNoteBox('titleColor', color)}/></label></div>
+            <div className="field-row"><label>正文颜色<HexColorInput label="小贴士正文颜色" value={noteBox.textColor} onChange={color => setNoteBox('textColor', color)}/></label><label className="setting-checkbox"><input type="checkbox" checked={!!noteBox.backgroundColor} onChange={event => setNoteBox('backgroundColor', event.target.checked ? '#fff8f0' : '')}/>使用背景色</label>{noteBox.backgroundColor && <HexColorInput label="小贴士背景色" value={noteBox.backgroundColor || '#fff8f0'} onChange={color => setNoteBox('backgroundColor', color)}/>}</div>
+            <div className="note-image-setting"><span>背景图（可选，与背景色叠加）</span><div>{noteBox.backgroundImage && <img src={noteBox.backgroundImage} alt="小贴士背景图预览"/>}<button className="button" type="button" onClick={() => void chooseNoteBoxBackground()}>{noteBox.backgroundImage ? '更换图片' : '选择图片'}</button>{noteBox.backgroundImage && <button className="button" type="button" onClick={() => setNoteBox('backgroundImage', null)}>移除图片</button>}</div></div>
+            {noteBox.backgroundImage && <label>背景图填充方式<select value={noteBox.backgroundSize} onChange={event => setNoteBox('backgroundSize', event.target.value)}><option value="cover">铺满并裁剪</option><option value="contain">完整显示</option><option value="100% 100%">拉伸铺满</option><option value="auto">原始大小</option></select></label>}
+          </div>
+        </section>
+      </> : settingsDialog === 'images' ? <>
+        <ChapterImagesSettings
+          entries={book.chapterImages}
+          chapters={book.chapters}
+          volumes={book.volumes}
+          selectedChapterId={selectedId}
+          busy={busy}
+          onPickImage={pickImage}
+          onChange={entries => updateBook(previous => ({ ...previous, chapterImages: entries }))}
+        />
+      </> : <>
+        <section className="setting-section"><h3>章节背景</h3><p className="setting-help">背景用于所有章节正文页，编辑、预览与 EPUB 导出保持一致；卷标题页使用卷设置中的图片。</p>
+          {book.chapterBackgroundImage && <img className="chapter-background-preview" src={book.chapterBackgroundImage} alt="章节背景预览"/>}
+          <div className="note-image-setting"><div><button className="button" type="button" onClick={() => void chooseChapterBackground()}>{book.chapterBackgroundImage ? '更换背景图' : '选择背景图'}</button>{book.chapterBackgroundImage && <button className="button" type="button" onClick={() => updateBook(previous => ({ ...previous, chapterBackgroundImage: null }))}>移除背景</button>}</div></div>
+          {book.chapterBackgroundImage && <label>图片铺放方式<select value={book.style.chapterBackgroundSize ?? 'cover'} onChange={event => setStyle('chapterBackgroundSize', event.target.value)}><option value="cover">铺满并裁剪</option><option value="contain">完整显示</option><option value="100% 100%">按页面拉伸</option><option value="100% auto">按页面宽度</option></select></label>}
+        </section>
+      </>}
+    </AdvancedSettingsDialog>}
     {editingVolume && <VolumeSettings
       volume={editingVolume}
       baseStyle={book.style}

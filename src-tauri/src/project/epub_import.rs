@@ -10,6 +10,38 @@ use super::{
     EditableChapter, Project, TitleLayout, Volume, VolumeStyle, escape_xml,
 };
 
+/// Reads a shared chapter-page background from an EPUB stylesheet. Only body
+/// rules are considered; decorative images inside notes and headings remain
+/// ordinary content assets.
+fn read_chapter_background(
+    archive: &mut ZipArchive<fs::File>,
+    opf_path: &str,
+    manifest: &HashMap<String, (String, String)>,
+) -> (Option<String>, String) {
+    let comments = Regex::new(r"(?s)/\*.*?\*/").unwrap();
+    let body_rule = Regex::new(r"(?is)\bbody(?:\.chapter-page)?\s*\{([^}]*)\}").unwrap();
+    let image_url = Regex::new(r#"(?i)\bbackground(?:-image)?\s*:[^;]*?url\(\s*['"]?([^)'"\s]+)"#).unwrap();
+    let background_size = Regex::new(r"(?i)\bbackground-size\s*:\s*([^;}]*)").unwrap();
+    for (href, _) in manifest.values().filter(|(href, _)| href.to_ascii_lowercase().ends_with(".css")) {
+        let Ok(css_path) = resolve_zip_path(opf_path, href) else { continue };
+        let Ok(css) = zip_text(archive, &css_path) else { continue };
+        let css = comments.replace_all(&css, "");
+        for rule in body_rule.captures_iter(&css) {
+            let declaration = &rule[1];
+            let Some(url) = image_url.captures(declaration).map(|capture| capture[1].to_string()) else { continue };
+            let Ok(image_path) = resolve_zip_path(&css_path, &url) else { continue };
+            let Some(mime) = image_mime(&image_path) else { continue };
+            let Ok(mut image) = archive.by_name(&image_path) else { continue };
+            let mut bytes = Vec::new();
+            if image.read_to_end(&mut bytes).is_err() { continue }
+            let size = background_size.captures(declaration).map(|capture| capture[1].trim().to_ascii_lowercase()).unwrap_or_default();
+            let size = match size.as_str() { "contain" | "100% 100%" | "100% auto" => size, _ => "cover".into() };
+            return (Some(format!("data:{mime};base64,{}", STANDARD.encode(bytes))), size);
+        }
+    }
+    (None, "cover".into())
+}
+
 /// 解析 EPUB 内的 XML。出版物常用 `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN">`
 /// 声明外部 DTD，roxmltree 默认拒绝这类文档，因此显式允许 DTD。
 fn parse_xml(text: &str) -> Result<Document<'_>, roxmltree::Error> {
@@ -92,6 +124,8 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
             archive.by_name(&path).ok()?.read_to_end(&mut bytes).ok()?;
             Some(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
         });
+    let (chapter_background_image, chapter_background_size) =
+        read_chapter_background(&mut archive, &opf_path, &manifest);
     let spine = opf_doc
         .descendants()
         .find(|n| n.has_tag_name("spine"))
@@ -336,9 +370,10 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
         title,
         author,
         language,
-        style: BookStyle::default(),
+        style: BookStyle { chapter_background_size, ..BookStyle::default() },
         cover_image,
         chapter_images,
+        chapter_background_image,
         note_marker_image: None,
         note_detail_image: None,
         opening_image: None,

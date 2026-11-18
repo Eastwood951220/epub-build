@@ -371,7 +371,7 @@ fn note_box_css(style: &NoteBoxStyle, background: Option<&str>) -> String {
     )
 }
 
-fn style_css(style: &BookStyle, fonts: &[&EmbeddedFont], note_box_background: Option<&str>) -> String {
+fn style_css(style: &BookStyle, fonts: &[&EmbeddedFont], note_box_background: Option<&str>, chapter_background: Option<&str>) -> String {
     let mut faces = String::new();
     for (index, font) in fonts.iter().enumerate() {
         if let Some(ext) = font_format(&font.mime)
@@ -418,6 +418,13 @@ fn style_css(style: &BookStyle, fonts: &[&EmbeddedFont], note_box_background: Op
         style.note_detail_image_size.clamp(8, 32),
     ));
     css.push_str(&note_box_css(&style.note_box, note_box_background));
+    if let Some(name) = chapter_background {
+        let size = match style.chapter_background_size.as_str() {
+            "contain" | "100% 100%" | "100% auto" => style.chapter_background_size.as_str(),
+            _ => "cover",
+        };
+        css.push_str(&format!("body.chapter-page{{background-image:url('../images/{name}');background-size:{size};background-repeat:no-repeat;background-position:center top}}"));
+    }
     css.push_str(".chapter-heading .heading-number,.chapter-heading .heading-name,.volume-heading .heading-number,.volume-heading .heading-name{display:block}.chapter-heading .heading-number+.heading-name,.volume-heading .heading-number+.heading-name{margin-top:.35em}");
     css.push_str(".chapter-heading.title-inline .heading-number,.chapter-heading.title-inline .heading-name,.volume-heading.title-inline .heading-number,.volume-heading.title-inline .heading-name{display:inline}.chapter-heading.title-inline .heading-number+.heading-name,.volume-heading.title-inline .heading-number+.heading-name{margin-top:0;margin-left:.35em}");
     css.push_str(&heading_styles(style, fonts, ""));
@@ -485,6 +492,7 @@ fn resolve_style(base: &BookStyle, overrides: &VolumeStyle) -> BookStyle {
         body_line_height: overrides.body_line_height.unwrap_or(base.body_line_height),
         body_paragraph_spacing: base.body_paragraph_spacing,
         chapter_body_spacing: base.chapter_body_spacing,
+        chapter_background_size: base.chapter_background_size.clone(),
         body_align: overrides
             .body_align
             .clone()
@@ -585,7 +593,8 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
         .as_deref()
         .map(|image| add_image(image, &mut assets))
         .transpose()?;
-    let mut css = style_css(&book.style, &fonts, note_box_background.as_deref());
+    let chapter_background = book.chapter_background_image.as_deref().map(|image| add_image(image, &mut assets)).transpose()?;
+    let mut css = style_css(&book.style, &fonts, note_box_background.as_deref(), chapter_background.as_deref());
     css.push_str(&volume_css(book, &fonts));
     write_zip(
         &mut zip,
@@ -728,11 +737,12 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
             }
         }
         body.push_str(&notes_html);
+        let chapter_class = volume_class.as_ref().map(|class| format!("chapter-page {class}")).unwrap_or_else(|| "chapter-page".into());
         let document = xhtml(
             &chapter.title,
             &body,
             Some("../styles/book.css"),
-            volume_class.as_deref(),
+            Some(&chapter_class),
         );
         write_zip(
             &mut zip,

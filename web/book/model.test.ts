@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chapterGroups, chapterImagesAt, chapterImagesFor, chapterImageApplies, chapterStyle, createChapterImage, createEmptyProject, noteBoxStyle, previewStyles, reindexChapterLinks, resolveStyle } from './model'
+import { chapterBackgroundStyle, chapterGroups, chapterImagesAt, chapterImagesFor, chapterImageApplies, chapterStyle, createChapterImage, createEmptyProject, noteBoxStyle, previewStyles, reindexChapterLinks, resolveStyle } from './model'
 import { orderedNotes, renderNoteMarkers } from '../chapters/notes'
 
 describe('project model', () => {
@@ -64,6 +64,16 @@ describe('project model', () => {
     ]
     const after = reindexChapterLinks(before, [before[1], before[0]])
     expect(after[1].html).toContain('href="chapter-1.xhtml#end"')
+  })
+})
+
+describe('chapter background', () => {
+  it('uses the selected image and size on chapter pages', () => {
+    const book = createEmptyProject()
+    expect(chapterBackgroundStyle(book)).toEqual({})
+    book.chapterBackgroundImage = 'data:image/png;base64,AAAA'
+    book.style.chapterBackgroundSize = '100% 100%'
+    expect(chapterBackgroundStyle(book)).toEqual({ backgroundImage: 'url("data:image/png;base64,AAAA")', backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat', backgroundPosition: 'center top' })
   })
 })
 
