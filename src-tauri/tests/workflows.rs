@@ -156,6 +156,42 @@ fn shared_library_font_is_embedded_in_exported_epub() {
 }
 
 #[test]
+fn epub_includes_only_referenced_fonts_from_styles_and_inline_text() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(&input, "第一卷 少年\n第一章 开始\n正文").unwrap();
+    let mut project = import_book(&input).unwrap();
+    for number in 1..=5 {
+        project.font_assets.push(epub_studio::project::EmbeddedFont {
+            family: format!("EPUBStudioFont{number}"),
+            name: format!("Font {number}"),
+            mime: "font/ttf".into(),
+            data_uri: "data:font/ttf;base64,AAEAAHRlc3Q=".into(),
+        });
+    }
+    project.style.body_font_family = "EPUBStudioFont2".into();
+    project.style.chapter_name_style.font_family = Some("EPUBStudioFont3".into());
+    project.volumes[0].style.title_font_family = Some("EPUBStudioFont4".into());
+    project.chapters[0].html =
+        "<p><span style=\"font-family: 'EPUBStudioFont5'\">正文</span></p>".into();
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(epub).unwrap()).unwrap();
+    let mut css = String::new();
+    archive.by_name("OEBPS/styles/book.css").unwrap().read_to_string(&mut css).unwrap();
+    assert!(!css.contains("EPUBStudioFont1"));
+    for number in 2..=5 {
+        assert!(css.contains(&format!("@font-face{{font-family:'EPUBStudioFont{number}'")));
+    }
+    assert!(archive.by_name("OEBPS/fonts/font-4.ttf").is_ok());
+    assert!(archive.by_name("OEBPS/fonts/font-5.ttf").is_err());
+    let mut opf = String::new();
+    archive.by_name("OEBPS/content.opf").unwrap().read_to_string(&mut opf).unwrap();
+    assert!(opf.contains("fonts/font-4.ttf"));
+    assert!(!opf.contains("fonts/font-5.ttf"));
+}
+
+#[test]
 fn optional_first_line_indent_survives_save_and_controls_epub_css() {
     let dir = tempdir().unwrap();
     let input = dir.path().join("book.txt");

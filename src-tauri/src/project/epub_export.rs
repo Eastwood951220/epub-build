@@ -1,7 +1,7 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use regex::Regex;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io::{Seek, Write},
     path::Path,
     sync::OnceLock,
@@ -105,7 +105,7 @@ fn embed_inline_images(html: &str, assets: &mut Vec<ImageAsset>) -> Result<Strin
         .replace("&nbsp;", "&#160;"))
 }
 
-fn css_font(value: &str, fonts: &[EmbeddedFont]) -> String {
+fn css_font(value: &str, fonts: &[&EmbeddedFont]) -> String {
     if fonts
         .iter()
         .any(|font| font.family == value && valid_font_family(value))
@@ -130,6 +130,48 @@ fn valid_font_family(value: &str) -> bool {
         .into_iter()
         .filter_map(|prefix| value.strip_prefix(prefix))
         .any(|suffix| !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn used_fonts(book: &Project) -> Vec<&EmbeddedFont> {
+    let style = &book.style;
+    let mut families: HashSet<&str> = [
+        style.title_font_family.as_str(),
+        style.body_font_family.as_str(),
+        style.note_font_family.as_str(),
+    ]
+    .into_iter()
+    .collect();
+    for line in [
+        &style.chapter_number_style,
+        &style.chapter_name_style,
+        &style.volume_number_style,
+        &style.volume_name_style,
+    ] {
+        if let Some(family) = line.font_family.as_deref() {
+            families.insert(family);
+        }
+    }
+    for volume in &book.volumes {
+        for family in [
+            volume.style.title_font_family.as_deref(),
+            volume.style.body_font_family.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            families.insert(family);
+        }
+    }
+    let inline_font = Regex::new(r"EPUBStudio(?:Library)?Font\d+").unwrap();
+    for chapter in &book.chapters {
+        for found in inline_font.find_iter(&chapter.html) {
+            families.insert(found.as_str());
+        }
+    }
+    book.font_assets
+        .iter()
+        .filter(|font| families.contains(font.family.as_str()))
+        .collect()
 }
 
 #[cfg(test)]
@@ -178,7 +220,7 @@ fn heading_line_css(
     selector: &str,
     line: &HeadingLineStyle,
     style: &BookStyle,
-    fonts: &[EmbeddedFont],
+    fonts: &[&EmbeddedFont],
     number: bool,
 ) -> String {
     let fallback_color = if number { "#587670" } else { "#183e37" };
@@ -208,7 +250,7 @@ fn heading_line_css(
     )
 }
 
-fn heading_styles(style: &BookStyle, fonts: &[EmbeddedFont], prefix: &str) -> String {
+fn heading_styles(style: &BookStyle, fonts: &[&EmbeddedFont], prefix: &str) -> String {
     let mut css = String::new();
     for (kind, part, line, number) in [
         ("chapter", "number", &style.chapter_number_style, true),
@@ -285,7 +327,7 @@ fn heading_html(title: &str, volume: bool, id: Option<&str>, layout: TitleLayout
     html
 }
 
-fn style_css(style: &BookStyle, fonts: &[EmbeddedFont]) -> String {
+fn style_css(style: &BookStyle, fonts: &[&EmbeddedFont]) -> String {
     let mut faces = String::new();
     for (index, font) in fonts.iter().enumerate() {
         if let Some(ext) = font_format(&font.mime)
@@ -413,24 +455,24 @@ fn resolve_style(base: &BookStyle, overrides: &VolumeStyle) -> BookStyle {
 }
 
 /// Per-volume typography overrides, applied to a volume page and its chapters.
-fn volume_css(book: &Project) -> String {
+fn volume_css(book: &Project, fonts: &[&EmbeddedFont]) -> String {
     let mut css = String::new();
     for (index, volume) in book.volumes.iter().enumerate() {
         let n = index + 1;
         let style = resolve_style(&book.style, &volume.style);
         css.push_str(&format!(
             "body.volume-{n}{{font-family:{};font-size:{}px;line-height:{:.2};text-align:{}}}body.volume-{n} h1{{font-family:{};font-size:{}px;text-align:{}}}",
-            css_font(&style.body_font_family, &book.font_assets),
+            css_font(&style.body_font_family, fonts),
             style.body_font_size.clamp(10, 48),
             style.body_line_height.clamp(1.2, 3.0),
             css_align(&style.body_align),
-            css_font(&style.title_font_family, &book.font_assets),
+            css_font(&style.title_font_family, fonts),
             style.title_font_size.clamp(16, 72),
             css_align(&style.title_align)
         ));
         css.push_str(&heading_styles(
             &style,
-            &book.font_assets,
+            fonts,
             &format!("body.volume-{n} "),
         ));
     }
@@ -453,8 +495,9 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
     let compressed = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     write_zip(&mut zip, "mimetype", b"application/epub+zip", stored)?;
     write_zip(&mut zip, "META-INF/container.xml", br#"<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#, compressed)?;
-    let mut css = style_css(&book.style, &book.font_assets);
-    css.push_str(&volume_css(book));
+    let fonts = used_fonts(book);
+    let mut css = style_css(&book.style, &fonts);
+    css.push_str(&volume_css(book, &fonts));
     write_zip(
         &mut zip,
         "OEBPS/styles/book.css",
@@ -470,7 +513,7 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
     let mut manifest = String::from(
         "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/><item id=\"css\" href=\"styles/book.css\" media-type=\"text/css\"/>",
     );
-    for (index, font) in book.font_assets.iter().enumerate() {
+    for (index, font) in fonts.iter().enumerate() {
         let ext = font_format(&font.mime).ok_or("字体格式不支持")?;
         if !valid_font_family(&font.family) {
             return Err("字体标识无效".into());
