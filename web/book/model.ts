@@ -225,7 +225,7 @@ export function previewStyles(style: BookStyle): Record<string, string> {
     if (name === 'Songti SC' || name === 'Noto Serif CJK SC') return `'${name}', serif`
     if (name === 'PingFang SC' || name === 'Noto Sans CJK SC') return `'${name}', sans-serif`
     if (name === 'Georgia') return 'Georgia, serif'
-    if (/^EPUBStudioFont\d+$/.test(name)) return `'${name}', serif`
+    if (/^EPUBStudio(?:Library)?Font\d+$/.test(name)) return `'${name}', serif`
     return name
   }
   const lineStyle = (prefix: string, line: HeadingLineStyle | undefined, number: boolean) => ({

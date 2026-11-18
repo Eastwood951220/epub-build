@@ -126,9 +126,22 @@ fn css_font(value: &str, fonts: &[EmbeddedFont]) -> String {
 }
 
 fn valid_font_family(value: &str) -> bool {
-    value.starts_with("EPUBStudioFont")
-        && value[14..].chars().all(|c| c.is_ascii_digit())
-        && value.len() > 14
+    ["EPUBStudioFont", "EPUBStudioLibraryFont"]
+        .into_iter()
+        .filter_map(|prefix| value.strip_prefix(prefix))
+        .any(|suffix| !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()))
+}
+
+#[cfg(test)]
+mod library_font_family_tests {
+    use super::valid_font_family;
+
+    #[test]
+    fn accepts_distinct_shared_library_font_families() {
+        assert!(valid_font_family("EPUBStudioLibraryFont1"));
+        assert!(valid_font_family("EPUBStudioFont1"));
+        assert!(!valid_font_family("EPUBStudioLibraryFont1;src:url(x)"));
+    }
 }
 
 fn font_format(mime: &str) -> Option<&'static str> {

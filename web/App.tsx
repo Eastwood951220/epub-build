@@ -27,6 +27,7 @@ import VolumeSettings from './settings/VolumeSettings'
 import VolumeBatchDialog from './settings/VolumeBatchDialog'
 import ChapterImagesSettings from './settings/ChapterImagesSettings'
 import LibraryPanel from './library/LibraryPanel'
+import { fontOptions, prepareFontSelection, sharedFontFamily } from './library/fontSelection'
 import CacheSettings from './settings/CacheSettings'
 import Home from './library/Home'
 import HeadingTitle from './chapters/HeadingTitle'
@@ -81,6 +82,7 @@ export default function App() {
   const [volumeBatchOpen, setVolumeBatchOpen] = useState(false)
   const [collapsedVolumeIds, setCollapsedVolumeIds] = useState<string[]>([])
   const selectedIdRef = useRef(selectedId)
+  const workspaceIdRef = useRef(workspaceId)
   const bookRef = useRef(book)
   const dirtyRef = useRef(dirty)
   const busyRef = useRef(busy)
@@ -94,6 +96,7 @@ export default function App() {
   const pendingInlineImageRef = useRef<{ chapterId: string; src: string; alt: string } | null>(null)
   const saveQueueRef = useRef(createSaveQueue())
   selectedIdRef.current = selectedId
+  workspaceIdRef.current = workspaceId
   bookRef.current = book
   dirtyRef.current = dirty
   busyRef.current = busy
@@ -202,6 +205,15 @@ export default function App() {
   }, [settingsTab])
 
   useEffect(() => {
+    if (screen !== 'editor') return
+    let active = true
+    void backend.listAssets('font')
+      .then(font => { if (active) setAssetsByKind(previous => ({ ...previous, font })) })
+      .catch(cause => { if (active) setError(errorMessage(cause)) })
+    return () => { active = false }
+  }, [screen])
+
+  useEffect(() => {
     void backend.listWorkspaces().then(setWorkspaces).catch(cause => setError(errorMessage(cause)))
   }, [])
 
@@ -239,8 +251,44 @@ export default function App() {
     updateBook(previous => ({ ...previous, style: { ...previous.style, [key]: value } }))
   }
 
+  function chooseBookFont(key: 'bodyFontFamily' | 'noteFontFamily', family: string) {
+    void applyProjectFontFamilies([family], previous => ({ ...previous, style: { ...previous.style, [key]: family } }))
+  }
+
+  function chooseSelectedTextFont(family: string) {
+    const chapterId = selectedIdRef.current
+    void applyProjectFontFamilies([family], previous => previous).then(applied => {
+      if (applied && selectedIdRef.current === chapterId) editor?.chain().focus().setFontFamily(family).run()
+    })
+  }
+
   function setHeadingStyle(key: HeadingStyleKey, patch: Partial<HeadingLineStyle>) {
+    if (patch.fontFamily) {
+      void applyProjectFontFamilies([patch.fontFamily], previous => ({ ...previous, style: {
+        ...previous.style, [key]: { ...(previous.style[key] ?? {}), ...patch },
+      } }))
+      return
+    }
     updateBook(previous => ({ ...previous, style: { ...previous.style, [key]: { ...(previous.style[key] ?? {}), ...patch } } }))
+  }
+
+  async function applyProjectFontFamilies(families: string[], change: (previous: Project) => Project): Promise<boolean> {
+    const projectId = workspaceIdRef.current
+    try {
+      const attachments = (await Promise.all([...new Set(families)].map(family =>
+        prepareFontSelection(family, bookRef.current.fontAssets, assetsByKind.font, backend.getAsset)
+      ))).filter(font => font !== null)
+      if (workspaceIdRef.current !== projectId) return false
+      updateBook(previous => {
+        const next = change(previous)
+        const existing = new Set(next.fontAssets.map(font => font.family))
+        return { ...next, fontAssets: [...next.fontAssets, ...attachments.filter(font => !existing.has(font.family))] }
+      })
+      return true
+    } catch (cause) {
+      setError(errorMessage(cause))
+      return false
+    }
   }
 
   function replaceBook(next: Project, id: number, message: string) {
@@ -328,10 +376,12 @@ export default function App() {
     setNotice(`已更新 ${next.length} 个卷标题`)
   }
 
-  function saveVolume(next: Volume) {
-    updateBook(previous => ({ ...previous, volumes: previous.volumes.map(volume => volume.id === next.id ? next : volume) }))
-    setVolumeSettingsId(null)
-    setNotice(`卷设置已更新：${next.title}`)
+  async function saveVolume(next: Volume) {
+    if (await applyProjectFontFamilies([next.style.titleFontFamily, next.style.bodyFontFamily].filter((family): family is string => !!family),
+      previous => ({ ...previous, volumes: previous.volumes.map(volume => volume.id === next.id ? next : volume) }))) {
+      setVolumeSettingsId(null)
+      setNotice(`卷设置已更新：${next.title}`)
+    }
   }
 
   function deleteVolume(volume: Volume) {
@@ -484,13 +534,11 @@ export default function App() {
 
   async function useFont(asset: AssetSummary, target: 'title' | 'body' | 'selection') {
     await withBusy(async () => {
-      const data = await backend.getAsset(asset.id)
-      const family = `EPUBStudioFont${asset.id}`
-      updateBook(previous => ({
-        ...previous,
-        fontAssets: previous.fontAssets.some(font => font.family === family) ? previous.fontAssets : [...previous.fontAssets, { family, name: data.name, mime: data.mime, dataUri: data.dataUri }],
-        style: target === 'selection' ? previous.style : { ...previous.style, [target === 'title' ? 'titleFontFamily' : 'bodyFontFamily']: family },
+      const family = sharedFontFamily(asset.id)
+      const applied = await applyProjectFontFamilies([family], previous => ({
+        ...previous, style: target === 'selection' ? previous.style : { ...previous.style, [target === 'title' ? 'titleFontFamily' : 'bodyFontFamily']: family },
       }))
+      if (!applied) return
       if (target === 'selection') editor?.chain().focus().setFontFamily(family).run()
       setNotice('字体已应用到书稿')
     })
@@ -678,8 +726,8 @@ export default function App() {
   }
 
   const selectedStyle = previewStyles(chapterStyle(book, selectedChapter)) as CSSProperties
-  const availableFonts = [...fontChoices, ...(book.fontAssets ?? []).map(font => ({ value: font.family, label: font.name }))]
-  const embeddedFontCss = (book.fontAssets ?? []).filter(font => /^EPUBStudioFont\d+$/.test(font.family) && /^font\/(ttf|otf|woff|woff2)$/.test(font.mime) && new RegExp(`^data:${font.mime};base64,[A-Za-z0-9+/=]+$`).test(font.dataUri)).map(font => `@font-face{font-family:'${font.family}';src:url('${font.dataUri}')}`).join('\n') + (previewAsset?.kind === 'font' ? `@font-face{font-family:'EPUBStudioFont${previewAsset.id}';src:url('${previewAsset.dataUri}')}` : '')
+  const availableFonts = fontOptions(fontChoices, book.fontAssets ?? [], assetsByKind.font)
+  const embeddedFontCss = (book.fontAssets ?? []).filter(font => /^EPUBStudio(?:Library)?Font\d+$/.test(font.family) && /^font\/(ttf|otf|woff|woff2)$/.test(font.mime) && new RegExp(`^data:${font.mime};base64,[A-Za-z0-9+/=]+$`).test(font.dataUri)).map(font => `@font-face{font-family:'${font.family}';src:url('${font.dataUri}')}`).join('\n') + (previewAsset?.kind === 'font' ? `@font-face{font-family:'${sharedFontFamily(previewAsset.id)}';src:url('${previewAsset.dataUri}')}` : '')
 
   const reviewDialog = review ? <ChapterReview
     key={reviewKey}
@@ -809,7 +857,7 @@ export default function App() {
             {currentVolume && <button className="button subtle" onClick={() => setVolumeSettingsId(currentVolume.id)}><Settings2 size={15}/>卷设置</button>}
           </div>
           <div className="chapter-title-field"><label htmlFor="chapter-title">章节标题</label><input id="chapter-title" value={selectedChapter.title} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, title: event.target.value } : chapter) }))} /><select aria-label="章节标题排列" value={selectedChapter.titleLayout ?? 'stacked'} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, titleLayout: event.target.value as 'inline' | 'stacked' } : chapter) }))}><option value="stacked">分两行</option><option value="inline">同一行</option></select></div>
-          <EditorToolbar editor={editor} availableFonts={availableFonts} showEditorImages={showEditorImages} onAddNote={addNote} onChooseImage={() => void chooseImage('inline')} onToggleImages={() => setShowEditorImages(value => !value)}/>
+          <EditorToolbar editor={editor} availableFonts={availableFonts} showEditorImages={showEditorImages} onSelectFont={chooseSelectedTextFont} onAddNote={addNote} onChooseImage={() => void chooseImage('inline')} onToggleImages={() => setShowEditorImages(value => !value)}/>
           <div className={`editor-stage ${showEditorImages ? "" : "images-hidden"}`} aria-busy={chapterLoading}>
           <div className="editor-scroll" ref={editorScrollRef}><div className="paper edit-paper" style={selectedStyle}>{showEditorImages && chapterImagesAt(book, selectedChapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}<HeadingTitle title={selectedChapter.title || '未命名章节'} kind="chapter" layout={selectedChapter.titleLayout}/>{showEditorImages && chapterImagesAt(book, selectedChapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}<EditorContent editor={editor} className="chapter-editor" />{orderedNotes(selectedChapter).length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{orderedNotes(selectedChapter).map((note, index) => <div className="note-edit-row" key={note.id}><span>[{index + 1}]</span><textarea aria-label={`备注 ${index + 1}`} placeholder="输入备注内容" value={note.text} onChange={event => updateNote(note.id, event.target.value)}/><button title="删除备注" aria-label={`删除备注 ${index + 1}`} onClick={() => deleteNote(note.id)}><Trash2 size={16}/></button></div>)}</section>}</div></div>
           {chapterLoading && <div className="chapter-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>正在加载章节正文…</div>}
@@ -827,8 +875,8 @@ export default function App() {
         <HeadingStyleControls label="章节名称" styleKey="chapterNameStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
         <HeadingStyleControls label="卷序号" styleKey="volumeNumberStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
         <HeadingStyleControls label="卷名称" styleKey="volumeNameStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
-        <section className="setting-section"><h3>正文</h3><label>字体<select value={book.style.bodyFontFamily} onChange={event => setStyle('bodyFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>字号<input type="number" min="10" max="48" value={book.style.bodyFontSize} onChange={event => setStyle('bodyFontSize', Number(event.target.value))}/></label><label>行距<input type="number" min="1.2" max="3" step="0.1" value={book.style.bodyLineHeight} onChange={event => setStyle('bodyLineHeight', Number(event.target.value))}/></label></div><label>对齐<select value={book.style.bodyAlign} onChange={event => setStyle('bodyAlign', event.target.value)}><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label><label className="setting-checkbox"><input type="checkbox" checked={!!book.style.bodyFirstLineIndent} onChange={event => setStyle('bodyFirstLineIndent', event.target.checked)}/>首行缩进两字（2em）</label></section>
-        <section className="setting-section"><h3>备注样式</h3><label>备注字体<select value={book.style.noteFontFamily ?? 'serif'} onChange={event => setStyle('noteFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>备注字号<input type="number" min="10" max="32" value={book.style.noteFontSize ?? 14} onChange={event => setStyle('noteFontSize', Number(event.target.value))}/></label><label>备注颜色<HexColorInput label="备注颜色" value={book.style.noteColor ?? '#526963'} onChange={color => setStyle('noteColor', color)}/></label></div><div className="field-row"><label>标记字号<input type="number" min="8" max="32" value={book.style.noteMarkerSize ?? 12} onChange={event => setStyle('noteMarkerSize', Number(event.target.value))}/></label><label>标记颜色<HexColorInput label="标记颜色" value={book.style.noteMarkerColor ?? '#0b8578'} onChange={color => setStyle('noteMarkerColor', color)}/></label></div></section>
+        <section className="setting-section"><h3>正文</h3><label>字体<select value={book.style.bodyFontFamily} onChange={event => chooseBookFont('bodyFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>字号<input type="number" min="10" max="48" value={book.style.bodyFontSize} onChange={event => setStyle('bodyFontSize', Number(event.target.value))}/></label><label>行距<input type="number" min="1.2" max="3" step="0.1" value={book.style.bodyLineHeight} onChange={event => setStyle('bodyLineHeight', Number(event.target.value))}/></label></div><label>对齐<select value={book.style.bodyAlign} onChange={event => setStyle('bodyAlign', event.target.value)}><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label><label className="setting-checkbox"><input type="checkbox" checked={!!book.style.bodyFirstLineIndent} onChange={event => setStyle('bodyFirstLineIndent', event.target.checked)}/>首行缩进两字（2em）</label></section>
+        <section className="setting-section"><h3>备注样式</h3><label>备注字体<select value={book.style.noteFontFamily ?? 'serif'} onChange={event => chooseBookFont('noteFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>备注字号<input type="number" min="10" max="32" value={book.style.noteFontSize ?? 14} onChange={event => setStyle('noteFontSize', Number(event.target.value))}/></label><label>备注颜色<HexColorInput label="备注颜色" value={book.style.noteColor ?? '#526963'} onChange={color => setStyle('noteColor', color)}/></label></div><div className="field-row"><label>标记字号<input type="number" min="8" max="32" value={book.style.noteMarkerSize ?? 12} onChange={event => setStyle('noteMarkerSize', Number(event.target.value))}/></label><label>标记颜色<HexColorInput label="标记颜色" value={book.style.noteMarkerColor ?? '#0b8578'} onChange={color => setStyle('noteMarkerColor', color)}/></label></div></section>
         <ChapterImagesSettings
           entries={book.chapterImages}
           chapters={book.chapters}

@@ -1,6 +1,7 @@
 import { Eye, Image as ImageIcon, Info, Plus, Trash2, Type, X } from 'lucide-react'
 
 import type { AssetData, AssetKind, AssetSummary } from '../platform/backend'
+import { sharedFontFamily } from './fontSelection'
 export type { AssetData, AssetKind, AssetSummary } from '../platform/backend'
 
 type FontTarget = 'title' | 'body' | 'selection'
@@ -86,7 +87,7 @@ export default function LibraryPanel({
             <div className="library-preview-body">
               {previewAsset.kind === 'image'
                 ? <img src={previewAsset.dataUri} alt={previewAsset.name} />
-                : <div className="library-specimen" style={{ fontFamily: `'EPUBStudioFont${previewAsset.id}', serif` }}>
+                : <div className="library-specimen" style={{ fontFamily: `'${sharedFontFamily(previewAsset.id)}', serif` }}>
                   <p className="library-specimen-sample">春江花月夜</p>
                   <p className="library-specimen-note">永和九年，岁在癸丑 · ABC 123</p>
                 </div>}

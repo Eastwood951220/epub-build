@@ -133,6 +133,29 @@ fn selected_font_is_saved_and_embedded_in_epub() {
 }
 
 #[test]
+fn shared_library_font_is_embedded_in_exported_epub() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(&input, "第一章\n正文").unwrap();
+    let mut project = import_book(&input).unwrap();
+    project.font_assets.push(epub_studio::project::EmbeddedFont {
+        family: "EPUBStudioLibraryFont1".into(),
+        name: "公用字体".into(),
+        mime: "font/ttf".into(),
+        data_uri: "data:font/ttf;base64,AAEAAHRlc3Q=".into(),
+    });
+    project.style.body_font_family = "EPUBStudioLibraryFont1".into();
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(epub).unwrap()).unwrap();
+    let mut css = String::new();
+    archive.by_name("OEBPS/styles/book.css").unwrap().read_to_string(&mut css).unwrap();
+    assert!(css.contains("@font-face{font-family:'EPUBStudioLibraryFont1'"));
+    assert!(css.contains("font-family:'EPUBStudioLibraryFont1',serif"));
+    assert!(archive.by_name("OEBPS/fonts/font-1.ttf").is_ok());
+}
+
+#[test]
 fn optional_first_line_indent_survives_save_and_controls_epub_css() {
     let dir = tempdir().unwrap();
     let input = dir.path().join("book.txt");

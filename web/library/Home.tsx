@@ -7,6 +7,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { BookOpen, ChevronDown, FilePlus2, FolderOpen, Image as ImageIcon, Plus, Settings2, Trash2, Type, X } from 'lucide-react'
 import { startWindowDrag } from '../platform/windowDrag'
 import { assetMeta, kindLabel, markShared, pendingAssets } from './projectAssets'
+import { sharedFontFamily } from './fontSelection'
 import SettingsDialog from '../settings/SettingsDialog'
 
 export type { WorkspaceSummary } from '../platform/backend'
@@ -224,7 +225,7 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
   async function previewAsset(asset: AssetSummary) {
     await withLibraryBusy(async () => {
       const data = await backend.getAsset(asset.id)
-      setPreview({ name: data.name, kind: asset.kind, mime: data.mime, dataUri: data.dataUri, family: asset.kind === 'font' ? `EPUBStudioFont${asset.id}` : '' })
+      setPreview({ name: data.name, kind: asset.kind, mime: data.mime, dataUri: data.dataUri, family: asset.kind === 'font' ? sharedFontFamily(asset.id) : '' })
     })
   }
 
