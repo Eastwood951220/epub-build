@@ -12,7 +12,7 @@ fn chapter_notes_export_at_chapter_end_with_links_and_styles() {
     let input = dir.path().join("book.txt");
     fs::write(&input, "第一章\n正文").unwrap();
     let mut project = import_book(&input).unwrap();
-    project.chapters[0].html = "<p>正文<span data-note-id=\"n1\">[1]</span></p>".into();
+    project.chapters[0].html = "<p>正文<span data-note-id=\"n1\">[1]</span></p><aside class=\"note-box\"><p class=\"note-box-title\">小贴士</p><p>边框内容</p></aside>".into();
     project.chapters[0]
         .notes
         .push(epub_studio::project::ChapterNote {
@@ -21,6 +21,8 @@ fn chapter_notes_export_at_chapter_end_with_links_and_styles() {
         });
     project.style.note_font_size = 14;
     project.style.note_marker_color = "#aabbcc".into();
+    project.note_marker_image = Some("data:image/png;base64,bWFya2Vy".into());
+    project.note_detail_image = Some("data:image/png;base64,ZGV0YWls".into());
     let saved = dir.path().join("book.json");
     save_project(&project, &saved).unwrap();
     let project = load_project(&saved).unwrap();
@@ -38,6 +40,9 @@ fn chapter_notes_export_at_chapter_end_with_links_and_styles() {
     assert!(chapter.contains("id=\"note-n1\""));
     assert!(chapter.contains("备注&lt;&amp;&gt;"));
     assert!(chapter.find("正文").unwrap() < chapter.find("备注&lt;&amp;&gt;").unwrap());
+    assert!(chapter.contains("<img src=\"../images/image-1.png\" alt=\"备注 1\" />"));
+    assert!(chapter.contains("class=\"note-detail-image\" src=\"../images/image-2.png\""));
+    assert!(chapter.contains("<aside class=\"note-box\"><p class=\"note-box-title\">小贴士</p><p>边框内容</p></aside>"));
     let mut css = String::new();
     archive
         .by_name("OEBPS/styles/book.css")
@@ -46,9 +51,59 @@ fn chapter_notes_export_at_chapter_end_with_links_and_styles() {
         .unwrap();
     assert!(css.contains("font-size:14px;color:#526963"));
     assert!(css.contains("color:#aabbcc"));
+    assert!(css.contains(".note-box{position:relative"));
     let imported = import_book(&epub).unwrap();
     assert_eq!(imported.chapters[0].notes[0].text, "备注<&>");
     assert!(imported.chapters[0].html.contains("data-note-id=\"n1\""));
+    assert!(imported.chapters[0].html.contains("<p class=\"note-box-title\">小贴士</p>"));
+}
+
+#[test]
+fn exports_the_configured_note_box_style_and_its_background_image() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("book.txt");
+    fs::write(&input, "第一章\n正文").unwrap();
+    let mut project = import_book(&input).unwrap();
+    project.chapters[0].html =
+        "<aside class=\"note-box\"><p class=\"note-box-title\">小贴士</p><p>边框内容</p></aside>".into();
+    // A tiny 1x1 PNG stands in for a decorative background picture.
+    project.style.note_box = epub_studio::project::NoteBoxStyle {
+        border_width: 0.0,
+        border_style: "dashed".into(),
+        border_color: "#123456".into(),
+        corner_radius: 6,
+        background_color: "#fff8f0".into(),
+        background_image: Some("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==".into()),
+        background_size: "contain".into(),
+        title_background: "#222222".into(),
+        title_color: "#eeeeee".into(),
+        text_color: "#333333".into(),
+    };
+    let epub = dir.path().join("book.epub");
+    export_epub(&project, &epub).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(&epub).unwrap()).unwrap();
+    let mut css = String::new();
+    archive
+        .by_name("OEBPS/styles/book.css")
+        .unwrap()
+        .read_to_string(&mut css)
+        .unwrap();
+    assert!(css.contains("border:none"));
+    assert!(css.contains("border-radius:0 6px 0 6px"));
+    assert!(css.contains("background-color:#fff8f0"));
+    assert!(css.contains("background-image:url('../images/image-1.png')"));
+    assert!(css.contains("background-size:contain"));
+    assert!(css.contains("background:#222222"));
+    assert!(css.contains("color:#eeeeee"));
+    assert!(css.contains("color:#333333"));
+    assert!(archive.by_name("OEBPS/images/image-1.png").is_ok());
+    let mut manifest = String::new();
+    archive
+        .by_name("OEBPS/content.opf")
+        .unwrap()
+        .read_to_string(&mut manifest)
+        .unwrap();
+    assert!(manifest.contains("href=\"images/image-1.png\""));
 }
 
 #[test]
@@ -858,6 +913,25 @@ fn body_images_export_as_centered_blocks() {
         .unwrap();
     assert!(chapter.contains("<img src=\"../images/image-1.png\" alt=\"插图\" />"));
     roxmltree::Document::parse(&chapter).unwrap();
+}
+
+#[test]
+fn imports_bordered_tip_box_as_editable_note_box() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("tips.epub");
+    let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("META-INF/container.xml", options).unwrap();
+    std::io::Write::write_all(&mut zip, br#"<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>"#).unwrap();
+    zip.start_file("OEBPS/content.opf", options).unwrap();
+    std::io::Write::write_all(&mut zip, br#"<package><metadata><title>Tips</title></metadata><manifest><item id="c" href="book.xhtml"/></manifest><spine><itemref idref="c"/></spine></package>"#).unwrap();
+    zip.start_file("OEBPS/book.xhtml", options).unwrap();
+    std::io::Write::write_all(&mut zip, "<html><body><h1>第一章</h1><div class=\"case-c\"><p class=\"tj-c\">小贴士</p><p class=\"jieti\">边框里的备注</p></div></body></html>".as_bytes()).unwrap();
+    zip.finish().unwrap();
+
+    let project = import_book(&path).unwrap();
+    assert_eq!(project.chapters.len(), 1);
+    assert!(project.chapters[0].html.contains("<aside class=\"note-box\"><p class=\"note-box-title\">小贴士</p><p>边框里的备注</p></aside>"));
 }
 
 #[test]

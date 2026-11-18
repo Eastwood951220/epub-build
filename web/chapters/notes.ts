@@ -13,10 +13,12 @@ export function orderedNotes(chapter: EditableChapter): ChapterNote[] {
   })
 }
 
-export function renderNoteMarkers(html: string, notes: ChapterNote[]): string {
+export function renderNoteMarkers(html: string, notes: ChapterNote[], markerImage?: string | null): string {
   const numbers = new Map(notes.map((note, index) => [note.id, index + 1]))
   return html.replace(markerPattern, (original, id: string) => {
     const number = numbers.get(id)
-    return number ? `<span class="note-marker" data-note-id="${id}">[${number}]</span>` : original
+    if (!number) return original
+    const content = markerImage ? `<img class="note-marker-image" src="${markerImage}" alt="备注 ${number}" />` : `[${number}]`
+    return `<span class="note-marker${markerImage ? ' has-image' : ''}" data-note-id="${id}">${content}</span>`
   })
 }

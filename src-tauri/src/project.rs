@@ -28,6 +28,10 @@ pub struct Project {
     /// Images placed at the chapter title; each entry scopes itself to chapters or volumes.
     #[serde(default)]
     pub chapter_images: Vec<ChapterImage>,
+    #[serde(default)]
+    pub note_marker_image: Option<String>,
+    #[serde(default)]
+    pub note_detail_image: Option<String>,
     /// Legacy single opening image, folded into `chapter_images` when a project loads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opening_image: Option<String>,
@@ -98,6 +102,9 @@ pub struct BookStyle {
     pub note_color: String,
     pub note_marker_size: u16,
     pub note_marker_color: String,
+    pub note_detail_image_size: u16,
+    /// Presentation of the bordered tip box; a zero border hides the frame.
+    pub note_box: NoteBoxStyle,
     pub chapter_number_style: HeadingLineStyle,
     pub chapter_name_style: HeadingLineStyle,
     pub volume_number_style: HeadingLineStyle,
@@ -112,6 +119,42 @@ pub struct HeadingLineStyle {
     pub color: Option<String>,
     pub align: Option<String>,
     pub weight: Option<u16>,
+}
+
+/// How a `aside.note-box` tip box is drawn. Not every tip box is a bordered
+/// card: a zero border width (or style `none`) drops the frame entirely, and
+/// `background_image` allows a decorative frame picture instead of a plain fill.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct NoteBoxStyle {
+    pub border_color: String,
+    pub border_width: f32,
+    pub border_style: String,
+    pub corner_radius: u16,
+    /// Empty means "let the paper show through".
+    pub background_color: String,
+    pub background_image: Option<String>,
+    pub background_size: String,
+    pub title_background: String,
+    pub title_color: String,
+    pub text_color: String,
+}
+
+impl Default for NoteBoxStyle {
+    fn default() -> Self {
+        Self {
+            border_color: "#b38971".into(),
+            border_width: 1.5,
+            border_style: "solid".into(),
+            corner_radius: 22,
+            background_color: String::new(),
+            background_image: None,
+            background_size: "cover".into(),
+            title_background: "#b38971".into(),
+            title_color: "#ffffff".into(),
+            text_color: "#a8795f".into(),
+        }
+    }
 }
 
 impl Default for BookStyle {
@@ -132,6 +175,8 @@ impl Default for BookStyle {
             note_color: "#526963".into(),
             note_marker_size: 12,
             note_marker_color: "#0b8578".into(),
+            note_detail_image_size: 12,
+            note_box: NoteBoxStyle::default(),
             chapter_number_style: HeadingLineStyle::default(),
             chapter_name_style: HeadingLineStyle::default(),
             volume_number_style: HeadingLineStyle::default(),
@@ -322,6 +367,8 @@ pub fn import_txt_with_patterns(
         style: BookStyle::default(),
         cover_image: None,
         chapter_images: Vec::new(),
+        note_marker_image: None,
+        note_detail_image: None,
         opening_image: None,
         closing_image: None,
         font_assets: Vec::new(),

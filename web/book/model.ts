@@ -14,6 +14,8 @@ export interface BookStyle {
   noteColor?: string
   noteMarkerSize?: number
   noteMarkerColor?: string
+  noteDetailImageSize?: number
+  noteBox?: NoteBoxStyle
   chapterNumberStyle?: HeadingLineStyle
   chapterNameStyle?: HeadingLineStyle
   volumeNumberStyle?: HeadingLineStyle
@@ -26,6 +28,39 @@ export interface HeadingLineStyle {
   color?: string
   align?: string
   weight?: number
+}
+
+/** Presentation of the bordered tip box; a zero border width hides the frame. */
+export interface NoteBoxStyle {
+  borderColor?: string
+  borderWidth?: number
+  borderStyle?: string
+  cornerRadius?: number
+  backgroundColor?: string
+  backgroundImage?: string | null
+  backgroundSize?: string
+  titleBackground?: string
+  titleColor?: string
+  textColor?: string
+}
+
+export const NOTE_BOX_DEFAULTS: Required<NoteBoxStyle> = {
+  borderColor: '#b38971',
+  borderWidth: 1.5,
+  borderStyle: 'solid',
+  cornerRadius: 22,
+  backgroundColor: '',
+  backgroundImage: null,
+  backgroundSize: 'cover',
+  titleBackground: '#b38971',
+  titleColor: '#ffffff',
+  textColor: '#a8795f',
+}
+
+/** Merges a stored (possibly partial) tip box style with the defaults. */
+export function noteBoxStyle(style: BookStyle | NoteBoxStyle | undefined): Required<NoteBoxStyle> {
+  const source = (style && 'noteBox' in style ? style.noteBox : style) as NoteBoxStyle | undefined
+  return { ...NOTE_BOX_DEFAULTS, ...(source ?? {}) }
 }
 
 export interface ChapterNote { id: string; text: string }
@@ -85,6 +120,9 @@ export interface Project {
   coverImage: string | null
   /** Images shown at chapter titles; each entry picks its own chapters or volumes. */
   chapterImages: ChapterImage[]
+  /** Shared inline note and note-detail icons, embedded for portable projects. */
+  noteMarkerImage?: string | null
+  noteDetailImage?: string | null
   fontAssets: EmbeddedFont[]
   volumes: Volume[]
   chapters: EditableChapter[]
@@ -117,10 +155,12 @@ export function createEmptyProject(): Project {
     style: {
       titleFontFamily: 'serif', titleFontSize: 30, titleAlign: 'center',
       bodyFontFamily: 'serif', bodyFontSize: 18, bodyLineHeight: 1.8, bodyParagraphSpacing: 0.9, chapterBodySpacing: 46, bodyAlign: 'justify', bodyFirstLineIndent: false,
-      noteFontFamily: 'serif', noteFontSize: 14, noteColor: '#526963', noteMarkerSize: 12, noteMarkerColor: '#0b8578',
+      noteFontFamily: 'serif', noteFontSize: 14, noteColor: '#526963', noteMarkerSize: 12, noteMarkerColor: '#0b8578', noteDetailImageSize: 12,
     },
     coverImage: null,
     chapterImages: [],
+    noteMarkerImage: null,
+    noteDetailImage: null,
     fontAssets: [],
     volumes: [],
     chapters: [{ id: crypto.randomUUID(), title: '第一章', html: '<p></p>' }],
@@ -189,6 +229,8 @@ export function resolveStyle(base: BookStyle, overrides: VolumeStyle = {}): Book
     noteColor: base.noteColor,
     noteMarkerSize: base.noteMarkerSize,
     noteMarkerColor: base.noteMarkerColor,
+    noteDetailImageSize: base.noteDetailImageSize,
+    noteBox: base.noteBox,
   }
 }
 
@@ -255,10 +297,29 @@ export function previewStyles(style: BookStyle): Record<string, string> {
     '--note-color': style.noteColor ?? '#526963',
     '--note-marker-size': `${style.noteMarkerSize ?? 12}px`,
     '--note-marker-color': style.noteMarkerColor ?? '#0b8578',
+    '--note-detail-image-size': `${Math.min(32, Math.max(8, style.noteDetailImageSize ?? 12))}px`,
+    ...noteBoxVars(style),
     ...lineStyle('chapter-number', style.chapterNumberStyle, true),
     ...lineStyle('chapter-name', style.chapterNameStyle, false),
     ...lineStyle('volume-number', style.volumeNumberStyle, true),
     ...lineStyle('volume-name', style.volumeNameStyle, false),
+  }
+}
+
+/** CSS variables driving the tip box frame, fill and text. */
+export function noteBoxVars(style: BookStyle | NoteBoxStyle | undefined): Record<string, string> {
+  const box = noteBoxStyle(style)
+  const width = Math.min(8, Math.max(0, box.borderWidth))
+  const line = ['dashed', 'dotted', 'double', 'none'].includes(box.borderStyle) ? box.borderStyle : 'solid'
+  return {
+    '--note-box-border': width <= 0 || line === 'none' ? 'none' : `${width}px ${line} ${box.borderColor}`,
+    '--note-box-radius': `0 ${Math.min(60, Math.max(0, box.cornerRadius))}px 0 ${Math.min(60, Math.max(0, box.cornerRadius))}px`,
+    '--note-box-bg-color': box.backgroundColor || 'transparent',
+    '--note-box-bg-image': box.backgroundImage ? `url("${box.backgroundImage}")` : 'none',
+    '--note-box-bg-size': ['contain', 'auto', '100% 100%'].includes(box.backgroundSize) ? box.backgroundSize : 'cover',
+    '--note-box-title-bg': box.titleBackground,
+    '--note-box-title-color': box.titleColor,
+    '--note-box-text-color': box.textColor,
   }
 }
 

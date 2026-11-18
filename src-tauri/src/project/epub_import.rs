@@ -339,6 +339,8 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
         style: BookStyle::default(),
         cover_image,
         chapter_images,
+        note_marker_image: None,
+        note_detail_image: None,
         opening_image: None,
         closing_image: None,
         font_assets: Vec::new(),
@@ -461,6 +463,16 @@ fn flatten_blocks<'a, 'input>(node: Node<'a, 'input>, output: &mut Vec<Node<'a, 
                 .any(|class| class == "chapter-notes")
         })
     {
+        return;
+    }
+    if node.is_element()
+        && node.attribute("class").is_some_and(|classes| {
+            classes
+                .split_whitespace()
+                .any(|class| class == "note-box" || class == "case-c")
+        })
+    {
+        output.push(node);
         return;
     }
     if node.is_element() && matches!(node.tag_name().name(), "section" | "article" | "div") {
@@ -659,10 +671,56 @@ fn import_node(
     if tag == "br" {
         return "<br/>".into();
     }
+    if tag == "div"
+        && node
+            .attribute("class")
+            .is_some_and(|classes| classes.split_whitespace().any(|class| class == "case-c"))
+    {
+        let title = node
+            .children()
+            .find(|child| {
+                child.has_tag_name("p")
+                    && child.attribute("class").is_some_and(|classes| {
+                        classes.split_whitespace().any(|class| class == "tj-c")
+                    })
+            })
+            .map(node_text)
+            .unwrap_or_else(|| "小贴士".into());
+        let content = node
+            .children()
+            .filter(|child| {
+                !child.has_tag_name("p")
+                    || !child.attribute("class").is_some_and(|classes| {
+                        classes.split_whitespace().any(|class| class == "tj-c")
+                    })
+            })
+            .map(|child| import_node(child, chapter_path, archive))
+            .collect::<String>();
+        return format!(
+            "<aside class=\"note-box\"><p class=\"note-box-title\">{}</p>{content}</aside>",
+            escape_xml(title.trim())
+        );
+    }
     let children: String = node
         .children()
         .map(|child| import_node(child, chapter_path, archive))
         .collect();
+    if tag == "p"
+        && node.attribute("class").is_some_and(|classes| {
+            classes
+                .split_whitespace()
+                .any(|class| class == "note-box-title")
+        })
+    {
+        return format!("<p class=\"note-box-title\">{children}</p>");
+    }
+    if tag == "aside"
+        && node
+            .attribute("class")
+            .is_some_and(|classes| classes.split_whitespace().any(|class| class == "note-box"))
+    {
+        return format!("<aside class=\"note-box\">{children}</aside>");
+    }
     let id = if supports_id(tag) {
         node.attribute("id")
             .map(|value| format!(" id=\"{}\"", escape_xml(value)))

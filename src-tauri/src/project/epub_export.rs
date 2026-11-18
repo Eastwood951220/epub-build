@@ -12,8 +12,9 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use super::{
     BookStyle, ChapterImage, ChapterImagePlacement, ChapterImageScope, ChapterNote,
-    EditableChapter, EmbeddedFont, HeadingLineStyle, Project, TitleLayout, VolumeStyle, escape_xml,
-    font_export::{book_characters, smaller_font_subset}, validate_project,
+    EditableChapter, EmbeddedFont, HeadingLineStyle, NoteBoxStyle, Project, TitleLayout, VolumeStyle, escape_xml,
+    font_export::{book_characters, smaller_font_subset},
+    validate_project,
 };
 
 fn chapter_image_applies(chapter: &EditableChapter, entry: &ChapterImage) -> bool {
@@ -327,7 +328,50 @@ fn heading_html(title: &str, volume: bool, id: Option<&str>, layout: TitleLayout
     html
 }
 
-fn style_css(style: &BookStyle, fonts: &[&EmbeddedFont]) -> String {
+/// Draws the tip box from the book's configurable style. A zero-width (or
+/// `none`) border leaves a frameless box, and a background image may replace
+/// the plain fill.
+fn note_box_css(style: &NoteBoxStyle, background: Option<&str>) -> String {
+    let width = style.border_width.clamp(0.0, 8.0);
+    let style_name = match style.border_style.as_str() {
+        "dashed" | "dotted" | "double" | "none" => style.border_style.as_str(),
+        _ => "solid",
+    };
+    let border = if width <= 0.0 || style_name == "none" {
+        "none".to_string()
+    } else {
+        format!(
+            "{width}px {style_name} {}",
+            safe_css_color(&style.border_color, "#b38971")
+        )
+    };
+    let radius = style.corner_radius.min(60);
+    let mut fill = if style.background_color.trim().is_empty() {
+        String::new()
+    } else {
+        format!(
+            "background-color:{};",
+            safe_css_color(&style.background_color, "transparent")
+        )
+    };
+    if let Some(name) = background {
+        let size = match style.background_size.as_str() {
+            "contain" | "auto" | "100% 100%" => style.background_size.as_str(),
+            _ => "cover",
+        };
+        fill.push_str(&format!(
+            "background-image:url('../images/{name}');background-size:{size};background-position:center;background-repeat:no-repeat;"
+        ));
+    }
+    format!(
+        ".note-box{{position:relative;margin:2.1em 0 2em;padding:1.5em 1.2em .9em;border:{border};border-radius:0 {radius}px 0 {radius}px;{fill}color:{};line-height:1.65;text-align:left}}.note-box .note-box-title{{position:relative;display:table;min-width:4.5em;margin:-2.35em 0 1em .2em;padding:.1em .65em;border-radius:18px;background:{};color:{};text-align:center;font-weight:bold;line-height:1.5;text-indent:0}}.note-box p{{margin:0 0 .55em;text-indent:0}}.note-box p:last-child{{margin-bottom:0}}.note-box img{{display:inline-block;max-width:1em;max-height:1em;vertical-align:middle;margin:0 .2em 0 0}}",
+        safe_css_color(&style.text_color, "#a8795f"),
+        safe_css_color(&style.title_background, "#b38971"),
+        safe_css_color(&style.title_color, "#ffffff"),
+    )
+}
+
+fn style_css(style: &BookStyle, fonts: &[&EmbeddedFont], note_box_background: Option<&str>) -> String {
     let mut faces = String::new();
     for (index, font) in fonts.iter().enumerate() {
         if let Some(ext) = font_format(&font.mime)
@@ -366,13 +410,26 @@ fn style_css(style: &BookStyle, fonts: &[&EmbeddedFont]) -> String {
         style.note_font_size.clamp(10, 32),
         safe_css_color(&style.note_color, "#526963"),
     ));
+    css.push_str(&format!(
+        ".note-marker img{{display:inline-block;width:{}px;height:{}px;object-fit:contain;vertical-align:super;margin:0}}.chapter-notes .note-detail-image{{display:inline-block;width:{}px;height:{}px;object-fit:contain;vertical-align:middle;margin:0 .22em 0 0}}",
+        style.note_marker_size.clamp(8, 32),
+        style.note_marker_size.clamp(8, 32),
+        style.note_detail_image_size.clamp(8, 32),
+        style.note_detail_image_size.clamp(8, 32),
+    ));
+    css.push_str(&note_box_css(&style.note_box, note_box_background));
     css.push_str(".chapter-heading .heading-number,.chapter-heading .heading-name,.volume-heading .heading-number,.volume-heading .heading-name{display:block}.chapter-heading .heading-number+.heading-name,.volume-heading .heading-number+.heading-name{margin-top:.35em}");
     css.push_str(".chapter-heading.title-inline .heading-number,.chapter-heading.title-inline .heading-name,.volume-heading.title-inline .heading-number,.volume-heading.title-inline .heading-name{display:inline}.chapter-heading.title-inline .heading-number+.heading-name,.volume-heading.title-inline .heading-number+.heading-name{margin-top:0;margin-left:.35em}");
     css.push_str(&heading_styles(style, fonts, ""));
     css
 }
 
-fn render_chapter_notes(html: &str, notes: &[ChapterNote]) -> (String, String) {
+fn render_chapter_notes(
+    html: &str,
+    notes: &[ChapterNote],
+    marker_image: Option<&str>,
+    detail_image: Option<&str>,
+) -> (String, String) {
     let marker = Regex::new(r#"(?s)<span\b[^>]*\bdata-note-id="([^"]+)"[^>]*>.*?</span>"#).unwrap();
     let by_id: HashMap<&str, &ChapterNote> =
         notes.iter().map(|note| (note.id.as_str(), note)).collect();
@@ -381,7 +438,8 @@ fn render_chapter_notes(html: &str, notes: &[ChapterNote]) -> (String, String) {
         let id = &captures[1];
         let Some(note) = by_id.get(id) else { return String::new() };
         let number = if let Some(index) = ordered.iter().position(|item| item.id == note.id) { index + 1 } else { ordered.push(note); ordered.len() };
-        format!("<a class=\"note-marker\" id=\"note-ref-{}\" href=\"#note-{}\" epub:type=\"noteref\">[{}]</a>", escape_xml(id), escape_xml(id), number)
+        let marker = marker_image.map(|name| format!("<img src=\"../images/{name}\" alt=\"备注 {number}\" />")).unwrap_or_else(|| format!("[{number}]"));
+        format!("<a class=\"note-marker\" id=\"note-ref-{}\" href=\"#note-{}\" epub:type=\"noteref\">{marker}</a>", escape_xml(id), escape_xml(id))
     }).into_owned();
     if ordered.is_empty() {
         return (body, String::new());
@@ -389,11 +447,18 @@ fn render_chapter_notes(html: &str, notes: &[ChapterNote]) -> (String, String) {
     let mut end =
         String::from("<section class=\"chapter-notes\" epub:type=\"endnotes\"><h2>备注</h2>");
     for (index, note) in ordered.iter().enumerate() {
+        let detail = detail_image
+            .map(|name| {
+                format!(
+                    "<img class=\"note-detail-image\" src=\"../images/{name}\" alt=\"备注 {}\" />",
+                    index + 1
+                )
+            })
+            .unwrap_or_else(|| format!("[{}]", index + 1));
         end.push_str(&format!(
-            "<p id=\"note-{}\" epub:type=\"endnote\"><a href=\"#note-ref-{}\">[{}]</a> {}</p>",
+            "<p id=\"note-{}\" epub:type=\"endnote\"><a href=\"#note-ref-{}\">{detail}</a> {}</p>",
             escape_xml(&note.id),
             escape_xml(&note.id),
-            index + 1,
             escape_xml(&note.text)
         ));
     }
@@ -430,6 +495,8 @@ fn resolve_style(base: &BookStyle, overrides: &VolumeStyle) -> BookStyle {
         note_color: base.note_color.clone(),
         note_marker_size: base.note_marker_size,
         note_marker_color: base.note_marker_color.clone(),
+        note_detail_image_size: base.note_detail_image_size,
+        note_box: base.note_box.clone(),
         chapter_number_style: base.chapter_number_style.clone(),
         chapter_name_style: base.chapter_name_style.clone(),
         volume_number_style: base.volume_number_style.clone(),
@@ -470,11 +537,7 @@ fn volume_css(book: &Project, fonts: &[&EmbeddedFont]) -> String {
             style.title_font_size.clamp(16, 72),
             css_align(&style.title_align)
         ));
-        css.push_str(&heading_styles(
-            &style,
-            fonts,
-            &format!("body.volume-{n} "),
-        ));
+        css.push_str(&heading_styles(&style, fonts, &format!("body.volume-{n} ")));
     }
     css
 }
@@ -496,7 +559,33 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
     write_zip(&mut zip, "mimetype", b"application/epub+zip", stored)?;
     write_zip(&mut zip, "META-INF/container.xml", br#"<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#, compressed)?;
     let fonts = used_fonts(book);
-    let mut css = style_css(&book.style, &fonts);
+    let mut assets = Vec::new();
+    let has_notes = book.chapters.iter().any(|chapter| !chapter.notes.is_empty());
+    let marker_image = book
+        .note_marker_image
+        .as_deref()
+        .filter(|_| has_notes)
+        .map(|image| add_image(image, &mut assets))
+        .transpose()?;
+    let detail_image = book
+        .note_detail_image
+        .as_deref()
+        .filter(|_| has_notes)
+        .map(|image| add_image(image, &mut assets))
+        .transpose()?;
+    let cover_name = book
+        .cover_image
+        .as_ref()
+        .map(|image| add_image(image, &mut assets))
+        .transpose()?;
+    let note_box_background = book
+        .style
+        .note_box
+        .background_image
+        .as_deref()
+        .map(|image| add_image(image, &mut assets))
+        .transpose()?;
+    let mut css = style_css(&book.style, &fonts, note_box_background.as_deref());
     css.push_str(&volume_css(book, &fonts));
     write_zip(
         &mut zip,
@@ -504,16 +593,14 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
         css.as_bytes(),
         compressed,
     )?;
-    let mut assets = Vec::new();
-    let cover_name = book
-        .cover_image
-        .as_ref()
-        .map(|image| add_image(image, &mut assets))
-        .transpose()?;
     let mut manifest = String::from(
         "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/><item id=\"css\" href=\"styles/book.css\" media-type=\"text/css\"/>",
     );
-    let characters = if fonts.is_empty() { Default::default() } else { book_characters(book) };
+    let characters = if fonts.is_empty() {
+        Default::default()
+    } else {
+        book_characters(book)
+    };
     for (index, font) in fonts.iter().enumerate() {
         let ext = font_format(&font.mime).ok_or("字体格式不支持")?;
         if !valid_font_family(&font.family) {
@@ -534,7 +621,12 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
             index + 1,
             font.mime
         ));
-        write_zip(&mut zip, &format!("OEBPS/fonts/{name}"), output_bytes, compressed)?;
+        write_zip(
+            &mut zip,
+            &format!("OEBPS/fonts/{name}"),
+            output_bytes,
+            compressed,
+        )?;
     }
     let mut spine = String::new();
     let mut links = String::new();
@@ -614,8 +706,14 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
         {
             body.push_str(&chapter_image_figure(entry, &mut assets)?);
         }
-        let (chapter_html, notes_html) = render_chapter_notes(&chapter.html, &chapter.notes);
-        body.push_str(&embed_inline_images(&chapter_html, &mut assets)?);
+        let chapter_html = embed_inline_images(&chapter.html, &mut assets)?;
+        let (chapter_html, notes_html) = render_chapter_notes(
+            &chapter_html,
+            &chapter.notes,
+            marker_image.as_deref(),
+            detail_image.as_deref(),
+        );
+        body.push_str(&chapter_html);
         // A volume's closing image belongs after the last chapter of that volume.
         if let Some(vi) = volume_index {
             let next_volume = book
@@ -766,5 +864,63 @@ mod image_tests {
             "<p><img src=\"../images/image-1.webp\" alt=\"图\" /></p>"
         );
         assert_eq!(assets[0].media_type, "image/webp");
+    }
+
+    #[test]
+    fn renders_note_images_in_both_positions_with_numbered_alt_text() {
+        let notes = vec![ChapterNote {
+            id: "a".into(),
+            text: "注释".into(),
+        }];
+        let (body, details) = render_chapter_notes(
+            "<p>正文<span data-note-id=\"a\">[1]</span></p>",
+            &notes,
+            Some("marker.png"),
+            Some("detail.png"),
+        );
+        assert!(body.contains("<img src=\"../images/marker.png\" alt=\"备注 1\" />"));
+        assert!(details.contains(
+            "<img class=\"note-detail-image\" src=\"../images/detail.png\" alt=\"备注 1\" />"
+        ));
+        assert!(details.contains("注释"));
+
+        let (body, details) =
+            render_chapter_notes("<span data-note-id=\"a\">[1]</span>", &notes, None, None);
+        assert!(body.contains(">[1]</a>"));
+        assert!(details.contains(">[1]</a>"));
+    }
+
+    #[test]
+    fn note_box_css_follows_the_configurable_style() {
+        let style = BookStyle::default();
+        let css = note_box_css(&style.note_box, None);
+        assert!(css.contains("border:1.5px solid #b38971"));
+        assert!(css.contains("border-radius:0 22px 0 22px"));
+        assert!(!css.contains("background-image"));
+
+        let plain = NoteBoxStyle { border_width: 0.0, ..NoteBoxStyle::default() };
+        assert!(note_box_css(&plain, None).contains("border:none"));
+
+        let fancy = NoteBoxStyle {
+            border_width: 3.0,
+            border_style: "dashed".into(),
+            border_color: "#123456".into(),
+            corner_radius: 6,
+            background_color: "#fff8f0".into(),
+            background_size: "contain".into(),
+            title_background: "#222222".into(),
+            title_color: "#eeeeee".into(),
+            text_color: "#333333".into(),
+            ..NoteBoxStyle::default()
+        };
+        let css = note_box_css(&fancy, Some("image-7.png"));
+        assert!(css.contains("border:3px dashed #123456"));
+        assert!(css.contains("border-radius:0 6px 0 6px"));
+        assert!(css.contains("background-color:#fff8f0"));
+        assert!(css.contains("background-image:url('../images/image-7.png')"));
+        assert!(css.contains("background-size:contain"));
+        assert!(css.contains("background:#222222"));
+        assert!(css.contains("color:#eeeeee"));
+        assert!(css.contains("color:#333333"));
     }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chapterGroups, chapterImagesAt, chapterImagesFor, chapterImageApplies, chapterStyle, createChapterImage, createEmptyProject, previewStyles, reindexChapterLinks, resolveStyle } from './model'
+import { chapterGroups, chapterImagesAt, chapterImagesFor, chapterImageApplies, chapterStyle, createChapterImage, createEmptyProject, noteBoxStyle, previewStyles, reindexChapterLinks, resolveStyle } from './model'
 import { orderedNotes, renderNoteMarkers } from '../chapters/notes'
 
 describe('project model', () => {
@@ -18,6 +18,26 @@ describe('project model', () => {
     expect(css['--title-align']).toBe('right')
     book.style.bodyFontFamily = 'Songti SC'
     expect(previewStyles(book.style)['--body-font']).toBe("'Songti SC', serif")
+  })
+
+  it('draws the tip box from its configurable style', () => {
+    const book = createEmptyProject()
+    expect(previewStyles(book.style)['--note-box-border']).toBe('1.5px solid #b38971')
+    expect(previewStyles(book.style)['--note-box-radius']).toBe('0 22px 0 22px')
+    book.style.noteBox = { borderWidth: 0 }
+    expect(previewStyles(book.style)['--note-box-border']).toBe('none')
+    book.style.noteBox = { borderWidth: 3, borderStyle: 'dashed', borderColor: '#123456', cornerRadius: 6, backgroundColor: '#fff8f0', backgroundImage: 'data:image/png;base64,AAA', backgroundSize: 'contain', titleBackground: '#222222', titleColor: '#eeeeee', textColor: '#333333' }
+    const css = previewStyles(book.style)
+    expect(css['--note-box-border']).toBe('3px dashed #123456')
+    expect(css['--note-box-radius']).toBe('0 6px 0 6px')
+    expect(css['--note-box-bg-color']).toBe('#fff8f0')
+    expect(css['--note-box-bg-image']).toBe('url("data:image/png;base64,AAA")')
+    expect(css['--note-box-bg-size']).toBe('contain')
+    expect(css['--note-box-title-bg']).toBe('#222222')
+    expect(css['--note-box-title-color']).toBe('#eeeeee')
+    expect(css['--note-box-text-color']).toBe('#333333')
+    expect(noteBoxStyle({ borderWidth: 2 }).borderColor).toBe('#b38971')
+    expect(resolveStyle(book.style, { titleFontSize: 22 }).noteBox?.borderWidth).toBe(3)
   })
 
   it('uses the optional two-character first-line indent in preview and volume chapters', () => {
@@ -52,6 +72,12 @@ describe('chapter notes', () => {
     const chapter = { id: 'c', title: '章', html: '<p>乙<span data-note-id="b">[2]</span>甲<span data-note-id="a">[1]</span></p>', notes: [{ id: 'a', text: '甲注' }, { id: 'b', text: '乙注' }] }
     expect(orderedNotes(chapter).map(note => note.id)).toEqual(['b', 'a'])
     expect(renderNoteMarkers(chapter.html, orderedNotes(chapter))).toContain('class="note-marker" data-note-id="b">[1]</span>')
+  })
+
+  it('uses an image for the inline note marker when configured', () => {
+    const html = '<p>正文<span data-note-id="a">[1]</span></p>'
+    const notes = [{ id: 'a', text: '注释' }]
+    expect(renderNoteMarkers(html, notes, 'data:image/png;base64,AAAA')).toContain('<img class="note-marker-image" src="data:image/png;base64,AAAA" alt="备注 1" />')
   })
 })
 

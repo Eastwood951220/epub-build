@@ -90,6 +90,15 @@ fn collect_refs(book: &Project, assets: &AssetStore) -> Result<(Vec<ProjectAsset
     for (index, chapter_image) in book.chapter_images.iter().enumerate() {
         append_ref(assets, "image", &chapter_image.image, format!("章节图 {}", index + 1), &mut image_keys, &mut images)?;
     }
+    if let Some(image) = book.note_marker_image.as_deref() {
+        append_ref(assets, "image", image, "正文备注标记".into(), &mut image_keys, &mut images)?;
+    }
+    if let Some(image) = book.note_detail_image.as_deref() {
+        append_ref(assets, "image", image, "备注明细标记".into(), &mut image_keys, &mut images)?;
+    }
+    if let Some(image) = book.style.note_box.background_image.as_deref() {
+        append_ref(assets, "image", image, "小贴士底图".into(), &mut image_keys, &mut images)?;
+    }
     for volume in &book.volumes {
         if let Some(opening) = volume.opening_image.as_deref() {
             append_ref(assets, "image", opening, format!("卷首图 · {}", volume.title), &mut image_keys, &mut images)?;
@@ -142,6 +151,15 @@ fn find_entry(book: &Project, key: &str) -> Option<Entry> {
     }
     for (index, image) in book.chapter_images.iter().enumerate() {
         if let Some(entry) = matches(&image.image, format!("章节图 {}", index + 1)) { return Some(entry); }
+    }
+    if let Some(image) = book.note_marker_image.as_deref() {
+        if let Some(entry) = matches(image, "正文备注标记".into()) { return Some(entry); }
+    }
+    if let Some(image) = book.note_detail_image.as_deref() {
+        if let Some(entry) = matches(image, "备注明细标记".into()) { return Some(entry); }
+    }
+    if let Some(image) = book.style.note_box.background_image.as_deref() {
+        if let Some(entry) = matches(image, "小贴士底图".into()) { return Some(entry); }
     }
     for volume in &book.volumes {
         if let Some(opening) = volume.opening_image.as_deref() {
@@ -322,6 +340,8 @@ mod tests {
                 placement: ChapterImagePlacement::Below,
                 scope: ChapterImageScope::All,
             }],
+            note_marker_image: None,
+            note_detail_image: None,
             opening_image: None,
             closing_image: None,
             font_assets: vec![EmbeddedFont {

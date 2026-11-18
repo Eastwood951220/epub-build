@@ -50,9 +50,9 @@ function BookPreview({ book, groups, chapterIndex, scrollRef, forcedChapterId }:
             <HeadingTitle title={chapter.title} kind="chapter" id={chapter.titleId} layout={chapter.titleLayout}/>
             {loaded && <>
               {chapterImagesAt(book, chapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}
-              <div className="preview-content" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(renderNoteMarkers(chapter.html, notes), { USE_PROFILES: { html: true } }) }}/>
+              <div className="preview-content" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(renderNoteMarkers(chapter.html, notes, book.noteMarkerImage), { USE_PROFILES: { html: true } }) }}/>
               {group.volume?.closingImage && last && <img className="boundary-image" src={group.volume.closingImage} alt="卷尾图"/>}
-              {notes.length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{notes.map((note, number) => <p key={note.id}><span>[{number + 1}]</span> {note.text}</p>)}</section>}
+              {notes.length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{notes.map((note, number) => <p key={note.id}>{book.noteDetailImage ? <img className="note-detail-image" src={book.noteDetailImage} alt={`备注 ${number + 1}`}/> : <span>[{number + 1}]</span>} {note.text}</p>)}</section>}
             </>}
           </article>
         })}
