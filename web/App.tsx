@@ -17,7 +17,7 @@ import {
 } from './book/model'
 import { PreserveIds } from './chapters/PreserveIds'
 import { NoteMarker } from './chapters/NoteMarker'
-import { NoteBox, NoteBoxTitle } from './chapters/NoteBox'
+import { NoteBox, NoteBoxTitle, appendNoteBox } from './chapters/NoteBox'
 import { orderedNotes } from './chapters/notes'
 import ChapterReview from './chapters/ChapterReview'
 import FindReplace from './chapters/FindReplaceDialog'
@@ -646,14 +646,8 @@ export default function App() {
 
   function addNoteBox() {
     if (!editor) return
-    const box = { type: 'noteBox', content: [
-      { type: 'noteBoxTitle', content: [{ type: 'text', text: '小贴士' }] },
-      { type: 'paragraph', content: [{ type: 'text', text: '输入备注内容' }] },
-    ] }
-    // Insert after the block holding the caret so a tap on 小贴士 never nests boxes.
-    const { $to } = editor.state.selection
-    const at = $to.depth >= 1 ? $to.after(1) : editor.state.doc.content.size
-    editor.chain().focus().insertContentAt(at, box).run()
+    appendNoteBox(editor, noteBoxStyle(book.style).defaultTitle)
+    setNotice('已在本章末尾添加小贴士，可直接编辑内容')
   }
 
   function updateNote(id: string, text: string) {
@@ -978,10 +972,15 @@ export default function App() {
         <section className="setting-section"><h3>备注样式</h3><label>备注字体<select value={book.style.noteFontFamily ?? 'serif'} onChange={event => chooseBookFont('noteFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>备注字号<input type="number" min="10" max="32" value={book.style.noteFontSize ?? 14} onChange={event => setStyle('noteFontSize', Number(event.target.value))}/></label><label>备注颜色<HexColorInput label="备注颜色" value={book.style.noteColor ?? '#526963'} onChange={color => setStyle('noteColor', color)}/></label></div><div className="field-row"><label>正文标记大小（px）<input type="number" min="8" max="32" value={book.style.noteMarkerSize ?? 12} onChange={event => setStyle('noteMarkerSize', Number(event.target.value))}/></label>{!book.noteMarkerImage && <label>标记颜色<HexColorInput label="标记颜色" value={book.style.noteMarkerColor ?? '#0b8578'} onChange={color => setStyle('noteMarkerColor', color)}/></label>}</div><div className="field-row"><label>明细图标大小（px）<input type="number" min="8" max="32" value={book.style.noteDetailImageSize ?? 12} onChange={event => setStyle('noteDetailImageSize', Number(event.target.value))}/></label></div>
           <div className="note-image-setting"><span>正文备注标记图片</span><div>{book.noteMarkerImage && <img src={book.noteMarkerImage} alt="正文备注标记图片预览"/>}<button className="button" type="button" onClick={() => void chooseNoteImage('noteMarkerImage')}>{book.noteMarkerImage ? '更换图片' : '选择图片'}</button>{book.noteMarkerImage && <button className="button" type="button" onClick={() => updateBook(previous => ({ ...previous, noteMarkerImage: null }))}>恢复数字</button>}</div></div>
           <div className="note-image-setting"><span>备注明细标记图片</span><div>{book.noteDetailImage && <img src={book.noteDetailImage} alt="备注明细标记图片预览"/>}<button className="button" type="button" onClick={() => void chooseNoteImage('noteDetailImage')}>{book.noteDetailImage ? '更换图片' : '选择图片'}</button>{book.noteDetailImage && <button className="button" type="button" onClick={() => updateBook(previous => ({ ...previous, noteDetailImage: null }))}>恢复数字</button>}</div></div>
-          <div className="note-box-setting"><span>小贴士框（带边框的备注区）</span>
-            <div className="field-row"><label>边框粗细（px，0 为无边框）<input type="number" min="0" max="8" step="0.5" value={noteBox.borderWidth} onChange={event => setNoteBox('borderWidth', Number(event.target.value))}/></label><label>边框线型<select value={noteBox.borderStyle} onChange={event => setNoteBox('borderStyle', event.target.value)}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option><option value="double">双线</option><option value="none">无边框</option></select></label></div>
-            <div className="field-row"><label>边框颜色<HexColorInput label="小贴士边框颜色" value={noteBox.borderColor} onChange={color => setNoteBox('borderColor', color)}/></label><label>圆角（px）<input type="number" min="0" max="40" value={noteBox.cornerRadius} onChange={event => setNoteBox('cornerRadius', Number(event.target.value))}/></label></div>
-            <div className="field-row"><label>标题底色<HexColorInput label="小贴士标题底色" value={noteBox.titleBackground} onChange={color => setNoteBox('titleBackground', color)}/></label><label>标题文字色<HexColorInput label="小贴士标题文字色" value={noteBox.titleColor} onChange={color => setNoteBox('titleColor', color)}/></label></div>
+          <div className="note-box-setting"><span>小贴士（章末独立备注，无需正文批注）</span>
+            <label className="setting-checkbox"><input type="checkbox" checked={noteBox.borderWidth > 0 && noteBox.borderStyle !== 'none'} onChange={event => { if (event.target.checked && noteBox.borderStyle === 'none') setNoteBox('borderStyle', 'solid'); setNoteBox('borderWidth', event.target.checked ? 1.5 : 0) }}/>显示外围边框</label>
+            {noteBox.borderWidth > 0 && noteBox.borderStyle !== 'none' && <>
+              <div className="field-row"><label>边框粗细（px）<input type="number" min="0.5" max="8" step="0.5" value={noteBox.borderWidth} onChange={event => setNoteBox('borderWidth', Math.max(0.5, Number(event.target.value) || 0.5))}/></label><label>边框线型<select value={noteBox.borderStyle} onChange={event => setNoteBox('borderStyle', event.target.value)}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option><option value="double">双线</option></select></label></div>
+              <div className="field-row"><label>边框颜色<HexColorInput label="小贴士边框颜色" value={noteBox.borderColor} onChange={color => setNoteBox('borderColor', color)}/></label><label>圆角（px）<input type="number" min="0" max="40" value={noteBox.cornerRadius} onChange={event => setNoteBox('cornerRadius', Number(event.target.value))}/></label></div>
+            </>}
+            <label className="setting-checkbox"><input type="checkbox" checked={noteBox.showTitle} onChange={event => setNoteBox('showTitle', event.target.checked)}/>显示边框标题</label>
+            {noteBox.showTitle && <div className="field-row"><label>默认标题文字<input type="text" maxLength={24} value={noteBox.defaultTitle} onChange={event => setNoteBox('defaultTitle', event.target.value)} placeholder="小贴士"/></label><label>标题底色<HexColorInput label="小贴士标题底色" value={noteBox.titleBackground} onChange={color => setNoteBox('titleBackground', color)}/></label></div>}
+            <p className="setting-help">新建小贴士使用默认标题；已插入的标题可直接在正文修改。标题文字颜色跟随边框颜色。</p>
             <div className="field-row"><label>正文颜色<HexColorInput label="小贴士正文颜色" value={noteBox.textColor} onChange={color => setNoteBox('textColor', color)}/></label><label className="setting-checkbox"><input type="checkbox" checked={!!noteBox.backgroundColor} onChange={event => setNoteBox('backgroundColor', event.target.checked ? '#fff8f0' : '')}/>使用背景色</label>{noteBox.backgroundColor && <HexColorInput label="小贴士背景色" value={noteBox.backgroundColor || '#fff8f0'} onChange={color => setNoteBox('backgroundColor', color)}/>}</div>
             <div className="note-image-setting"><span>背景图（可选，与背景色叠加）</span><div>{noteBox.backgroundImage && <img src={noteBox.backgroundImage} alt="小贴士背景图预览"/>}<button className="button" type="button" onClick={() => void chooseNoteBoxBackground()}>{noteBox.backgroundImage ? '更换图片' : '选择图片'}</button>{noteBox.backgroundImage && <button className="button" type="button" onClick={() => setNoteBox('backgroundImage', null)}>移除图片</button>}</div></div>
             {noteBox.backgroundImage && <label>背景图填充方式<select value={noteBox.backgroundSize} onChange={event => setNoteBox('backgroundSize', event.target.value)}><option value="cover">铺满并裁剪</option><option value="contain">完整显示</option><option value="100% 100%">拉伸铺满</option><option value="auto">原始大小</option></select></label>}

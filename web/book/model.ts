@@ -44,6 +44,8 @@ export interface NoteBoxStyle {
   backgroundSize?: string
   titleBackground?: string
   titleColor?: string
+  showTitle?: boolean
+  defaultTitle?: string
   textColor?: string
 }
 
@@ -55,8 +57,10 @@ export const NOTE_BOX_DEFAULTS: Required<NoteBoxStyle> = {
   backgroundColor: '',
   backgroundImage: null,
   backgroundSize: 'cover',
-  titleBackground: '#b38971',
-  titleColor: '#ffffff',
+  titleBackground: '#ffffff',
+  titleColor: '#b38971',
+  showTitle: true,
+  defaultTitle: '小贴士',
   textColor: '#a8795f',
 }
 
@@ -362,8 +366,9 @@ export function noteBoxVars(style: BookStyle | NoteBoxStyle | undefined): Record
     '--note-box-bg-color': box.backgroundColor || 'transparent',
     '--note-box-bg-image': box.backgroundImage ? `url("${box.backgroundImage}")` : 'none',
     '--note-box-bg-size': ['contain', 'auto', '100% 100%'].includes(box.backgroundSize) ? box.backgroundSize : 'cover',
-    '--note-box-title-bg': box.titleBackground,
-    '--note-box-title-color': box.titleColor,
+    '--note-box-title-bg': box.titleBackground === box.borderColor ? '#ffffff' : box.titleBackground,
+    '--note-box-title-color': box.borderColor,
+    '--note-box-title-display': box.showTitle ? 'table' : 'none',
     '--note-box-text-color': box.textColor,
   }
 }

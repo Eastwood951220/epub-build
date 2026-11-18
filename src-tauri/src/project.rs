@@ -146,6 +146,8 @@ pub struct NoteBoxStyle {
     pub background_size: String,
     pub title_background: String,
     pub title_color: String,
+    pub show_title: bool,
+    pub default_title: String,
     pub text_color: String,
 }
 
@@ -159,8 +161,10 @@ impl Default for NoteBoxStyle {
             background_color: String::new(),
             background_image: None,
             background_size: "cover".into(),
-            title_background: "#b38971".into(),
-            title_color: "#ffffff".into(),
+            title_background: "#ffffff".into(),
+            title_color: "#b38971".into(),
+            show_title: true,
+            default_title: "小贴士".into(),
             text_color: "#a8795f".into(),
         }
     }

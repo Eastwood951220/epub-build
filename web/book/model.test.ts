@@ -29,15 +29,20 @@ describe('project model', () => {
     book.style.noteBox = { borderWidth: 3, borderStyle: 'dashed', borderColor: '#123456', cornerRadius: 6, backgroundColor: '#fff8f0', backgroundImage: 'data:image/png;base64,AAA', backgroundSize: 'contain', titleBackground: '#222222', titleColor: '#eeeeee', textColor: '#333333' }
     const css = previewStyles(book.style)
     expect(css['--note-box-border']).toBe('3px dashed #123456')
+    book.style.noteBox = { ...book.style.noteBox, borderStyle: 'double' }
+    expect(previewStyles(book.style)['--note-box-border']).toBe('3px double #123456')
     expect(css['--note-box-radius']).toBe('0 6px 0 6px')
     expect(css['--note-box-bg-color']).toBe('#fff8f0')
     expect(css['--note-box-bg-image']).toBe('url("data:image/png;base64,AAA")')
     expect(css['--note-box-bg-size']).toBe('contain')
     expect(css['--note-box-title-bg']).toBe('#222222')
-    expect(css['--note-box-title-color']).toBe('#eeeeee')
+    expect(css['--note-box-title-color']).toBe('#123456')
     expect(css['--note-box-text-color']).toBe('#333333')
     expect(noteBoxStyle({ borderWidth: 2 }).borderColor).toBe('#b38971')
     expect(resolveStyle(book.style, { titleFontSize: 22 }).noteBox?.borderWidth).toBe(3)
+    book.style.noteBox = { ...book.style.noteBox, showTitle: false, defaultTitle: '史料补充' }
+    expect(previewStyles(book.style)['--note-box-title-display']).toBe('none')
+    expect(noteBoxStyle(book.style).defaultTitle).toBe('史料补充')
   })
 
   it('uses the optional two-character first-line indent in preview and volume chapters', () => {

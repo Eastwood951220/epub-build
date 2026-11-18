@@ -1,4 +1,15 @@
-import { Node, mergeAttributes } from '@tiptap/core'
+import { Node, mergeAttributes, type Editor } from '@tiptap/core'
+
+/** Adds a tip at the end of the chapter body, independently of numbered notes. */
+export function appendNoteBox(editor: Editor, title = '小贴士'): void {
+  editor.chain().focus().insertContentAt(editor.state.doc.content.size, {
+    type: 'noteBox',
+    content: [
+      { type: 'noteBoxTitle', content: [{ type: 'text', text: title.trim() || '小贴士' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: '输入备注内容' }] },
+    ],
+  }).run()
+}
 
 export const NoteBoxTitle = Node.create({
   name: 'noteBoxTitle',

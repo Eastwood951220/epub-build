@@ -364,10 +364,11 @@ fn note_box_css(style: &NoteBoxStyle, background: Option<&str>) -> String {
         ));
     }
     format!(
-        ".note-box{{position:relative;margin:2.1em 0 2em;padding:1.5em 1.2em .9em;border:{border};border-radius:0 {radius}px 0 {radius}px;{fill}color:{};line-height:1.65;text-align:left}}.note-box .note-box-title{{position:relative;display:table;min-width:4.5em;margin:-2.35em 0 1em .2em;padding:.1em .65em;border-radius:18px;background:{};color:{};text-align:center;font-weight:bold;line-height:1.5;text-indent:0}}.note-box p{{margin:0 0 .55em;text-indent:0}}.note-box p:last-child{{margin-bottom:0}}.note-box img{{display:inline-block;max-width:1em;max-height:1em;vertical-align:middle;margin:0 .2em 0 0}}",
+        ".note-box{{position:relative;margin:2.1em 0 2em;padding:1.5em 1.2em .9em;border:{border};border-radius:0 {radius}px 0 {radius}px;{fill}color:{};line-height:1.65;text-align:left}}.note-box .note-box-title{{display:{};position:relative;min-width:4.5em;margin:-2.35em 0 1em .2em;padding:.1em .65em;border-radius:18px;background:{};color:{};text-align:center;font-weight:bold;line-height:1.5;text-indent:0}}.note-box p{{margin:0 0 .55em;text-indent:0}}.note-box p:last-child{{margin-bottom:0}}.note-box img{{display:inline-block;max-width:1em;max-height:1em;vertical-align:middle;margin:0 .2em 0 0}}",
         safe_css_color(&style.text_color, "#a8795f"),
-        safe_css_color(&style.title_background, "#b38971"),
-        safe_css_color(&style.title_color, "#ffffff"),
+        if style.show_title { "table" } else { "none" },
+        safe_css_color(if style.title_background == style.border_color { "#ffffff" } else { &style.title_background }, "#ffffff"),
+        safe_css_color(&style.border_color, "#b38971"),
     )
 }
 
@@ -946,12 +947,16 @@ mod image_tests {
         };
         let css = note_box_css(&fancy, Some("image-7.png"));
         assert!(css.contains("border:3px dashed #123456"));
+        let double = NoteBoxStyle { border_style: "double".into(), ..fancy.clone() };
+        assert!(note_box_css(&double, None).contains("border:3px double #123456"));
+        assert!(css.contains("color:#123456"));
+        let hidden = NoteBoxStyle { show_title: false, ..fancy.clone() };
+        assert!(note_box_css(&hidden, None).contains(".note-box .note-box-title{display:none"));
         assert!(css.contains("border-radius:0 6px 0 6px"));
         assert!(css.contains("background-color:#fff8f0"));
         assert!(css.contains("background-image:url('../images/image-7.png')"));
         assert!(css.contains("background-size:contain"));
         assert!(css.contains("background:#222222"));
-        assert!(css.contains("color:#eeeeee"));
         assert!(css.contains("color:#333333"));
     }
 }
