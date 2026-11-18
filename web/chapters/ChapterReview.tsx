@@ -12,6 +12,7 @@ import {
   removeChapter,
   parseChapterTitle,
   renumberChapters,
+  suggestNumberingStart,
   splitChapter,
   splitHtmlBlocks,
   type ChapterCounting,
@@ -40,6 +41,7 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
   const [numberStyle, setNumberStyle] = useState<ChapterNumberStyle>('chinese')
   const [counting, setCounting] = useState<ChapterCounting>('book')
   const [start, setStart] = useState(1)
+  const [fromChapterId, setFromChapterId] = useState<string | null>(() => suggestNumberingStart(chapters, volumes))
   const [renumberVolumes, setRenumberVolumes] = useState(true)
   const [message, setMessage] = useState('')
   const [working, setWorking] = useState(false)
@@ -50,6 +52,8 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
 
   const counts = useMemo(() => new Map(drafts.map(chapter => [chapter.id, blockCount(chapter)])), [drafts])
   const groups = useMemo(() => chapterGroups(drafts, volumeDrafts), [drafts, volumeDrafts])
+  const effectiveFromId = drafts.some(chapter => chapter.id === fromChapterId) ? fromChapterId : suggestNumberingStart(drafts, volumeDrafts)
+  const fromIndex = Math.max(0, drafts.findIndex(chapter => chapter.id === effectiveFromId))
   const blocks = useMemo(() => {
     const chapter = drafts.find(item => item.id === expanded)
     return chapter ? splitHtmlBlocks(chapter.html) : []
@@ -113,6 +117,7 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
       style: numberStyle,
       counting: counting === 'volume' && volumeDrafts.length === 0 ? 'book' : counting,
       start,
+      fromChapterId: effectiveFromId ?? undefined,
       renumberVolumes: renumberVolumes && volumeDrafts.length > 0,
     })
     setDrafts(result.chapters)
@@ -131,6 +136,7 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
       const next = await onRedetect(chapterPattern.trim() || undefined, volumePattern.trim() || undefined)
       setDrafts(next.chapters)
       setVolumeDrafts(next.volumes)
+      setFromChapterId(suggestNumberingStart(next.chapters, next.volumes))
       setExpanded(null)
       setMessage(`已重新识别 ${next.chapters.length} 章、${next.volumes.length} 卷`)
     } catch (cause) {
@@ -143,7 +149,7 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
   const numberingPreview = (() => {
     if (numberStyle === 'name' && drafts.length === 0) return '示例：—'
     if (drafts.length === 0) return '示例：—'
-    const sample = drafts[0]
+    const sample = drafts[fromIndex]
     const parsed = parseChapterTitle(sample.title)
     const name = parsed.text || sample.title
     if (numberStyle === 'name') return `示例：${name}`
@@ -215,7 +221,7 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
             <option value="volume" disabled={volumeDrafts.length === 0}>每卷从 1 开始</option>
             <option value="keep">保留原标题编号（缺编号的按顺序补）</option>
           </select>
-          <label className="review-inline">起始
+          <label className="review-inline">编号从
             <input
               type="number"
               min="1"
@@ -226,10 +232,16 @@ export default function ChapterReview({ mode, chapters, volumes, sourcePath, onR
               aria-label="起始编号"
             />
           </label>
+          <label className="review-inline">从第
+            <input type="number" min="1" max={Math.max(1, drafts.length)} value={drafts.length ? fromIndex + 1 : 1} disabled={drafts.length === 0}
+              onChange={event => { const index = Math.max(0, Math.min(drafts.length - 1, Math.round(Number(event.target.value) || 1) - 1)); setFromChapterId(drafts[index]?.id ?? null) }}
+              aria-label="从第几项章节开始编号"/>
+            项开始
+          </label>
           {volumeDrafts.length > 0 && <label className="review-inline"><input type="checkbox" checked={renumberVolumes} onChange={event => setRenumberVolumes(event.target.checked)}/>同时整理卷标题</label>}
           <button className="button outline" disabled={drafts.length === 0} onClick={applyNumbering}>{numberStyle === 'name' ? '去掉前缀' : '应用前缀'}</button>
         </div>
-        <p className="review-hint">{numberingPreview} · 每章标题里的编号前缀（第222章 / 1. / Chapter 3）会先被抽掉，剩下的文字就是章节名，再按所选前缀统一重写。卷号保留原数字。</p>
+        <p className="review-hint">{numberingPreview} · 从第 {fromIndex + 1} 项“{drafts[fromIndex]?.title ?? '—'}”开始；此前的封面、作者简介等保留原标题且不占编号。所选范围内会先去掉旧编号再统一重写。卷号保留原数字。</p>
         {message && <p className="review-message" role="status">{message}</p>}
       </section>
 

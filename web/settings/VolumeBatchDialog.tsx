@@ -56,7 +56,7 @@ export default function VolumeBatchDialog({ volumes, chapterCount, busy = false,
     if (drafts.length === 0) return '还没有卷'
     const sample = drafts[0]
     const parsed = parseChapterTitle(sample.title)
-    const number = style === 'name' ? 0 : (parsed.number ?? start)
+    const number = style === 'name' ? 0 : start
     const title = formatVolumeTitle(number, parsed.text || sample.title, style, unit)
     return `示例：${title}`
   }, [drafts, style, unit, start])

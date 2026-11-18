@@ -9,6 +9,7 @@ import {
   parseChapterTitle,
   renumberChapters,
   renumberVolumeTitles,
+  suggestNumberingStart,
   mergeWithPrevious,
   normalizeChapters,
   plainText,
@@ -213,6 +214,7 @@ describe('chapter title numbering', () => {
     expect(upper.volumes.map(volume => volume.title)).toEqual(['第壹卷 风起', '第贰卷 云涌', '第叁卷 未命名卷'])
     const kept = renumberVolumeTitles(volumes, { style: 'chinese', start: 1 })
     expect(kept.volumes[1].title).toBe('第二部 云涌')
+    expect(renumberVolumeTitles(volumes, { style: 'arabic', start: 4, unit: '卷' }).volumes.map(volume => volume.title)).toEqual(['第4卷 风起', '第5卷 云涌', '第6卷 未命名卷'])
     const stripped = renumberVolumeTitles(volumes, { style: 'name', start: 1 })
     expect(stripped.volumes[0].title).toBe('风起')
   })
@@ -245,6 +247,19 @@ describe('chapter title numbering', () => {
       '尾声',
     ])
     expect(result.renamed).toBe(3)
+  })
+
+  it('starts at a selected chapter and leaves introductory chapters untouched', () => {
+    const front = [chapter('cover', '封面', '<p>封面</p>'), chapter('author', '第四章 作者简介', '<p>简介</p>')]
+    const body = [chapter('first', '第五章 士伍，请出示身份证！', '<p>正文</p>'), chapter('second', '第六章 天下事与眼前事', '<p>正文</p>')]
+    const all = [...front, ...body]
+    const volumes: Volume[] = [{ id: 'v1', title: '第一卷 小亭长', style: {}, openingImage: null, closingImage: null }]
+    all[2].volumeId = 'v1'
+    all[3].volumeId = 'v1'
+    expect(suggestNumberingStart(all, volumes)).toBe('first')
+    expect(suggestNumberingStart([{ ...all[1], volumeId: 'v1' }, ...all.slice(2)], volumes)).toBe('first')
+    const result = renumberChapters(all, volumes, { style: 'chinese', counting: 'book', start: 1, fromChapterId: 'first', renumberVolumes: false })
+    expect(result.chapters.map(item => item.title)).toEqual(['封面', '第四章 作者简介', '第一章 士伍，请出示身份证！', '第二章 天下事与眼前事'])
   })
 
   it('restarts numbering inside each volume', () => {

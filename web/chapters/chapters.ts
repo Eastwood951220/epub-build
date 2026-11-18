@@ -409,6 +409,8 @@ export function formatVolumeTitle(number: number, text: string, style: ChapterNu
 export interface VolumeNumberOptions {
   style: ChapterNumberStyle
   start: number
+  /** Keep existing volume numbers when only normalizing their spelling. */
+  preserveExistingNumbers?: boolean
   /** 卷／部／篇，缺省时沿用各卷标题里已有的单位。 */
   unit?: string
 }
@@ -427,7 +429,7 @@ export function renumberVolumeTitles(volumes: Volume[], options: VolumeNumberOpt
   let renamed = 0
   const next = volumes.map((volume, index) => {
     const parsed = parseChapterTitle(volume.title)
-    const number = parsed.number ?? start + index
+    const number = options.preserveExistingNumbers ? (parsed.number ?? start + index) : start + index
     const unit = options.unit || parsed.unit || '卷'
     const title = formatVolumeTitle(number, parsed.text, options.style, unit)
     if (title === volume.title) return volume
@@ -441,6 +443,8 @@ export interface RenumberOptions {
   style: ChapterNumberStyle
   counting: ChapterCounting
   start: number
+  /** Chapters before this id keep their titles and do not consume numbers. */
+  fromChapterId?: string
   renumberVolumes: boolean
 }
 
@@ -452,6 +456,20 @@ export interface RenumberResult {
 }
 
 const UNNUMBERED_TITLES = ['前言', '序', '序言', '序章', '楔子', '引子', '尾声', '后记', '番外', '终章', '附录']
+const FRONT_MATTER_TITLES = new Set(['封面', '扉页', '目录', '内容简介', '作者简介', '版权页', '版权信息', '出版说明', '前言', '序', '序言', '引子'])
+
+/** Picks the first body chapter for the review dialog, keeping front matter outside numbering. */
+export function suggestNumberingStart(chapters: EditableChapter[], volumes: Volume[]): string | null {
+  const volumeIds = new Set(volumes.map(volume => volume.id))
+  const isBodyChapter = (chapter: EditableChapter) => !FRONT_MATTER_TITLES.has(parseChapterTitle(chapter.title).text)
+  const firstInVolume = chapters.find(chapter => chapter.volumeId != null && volumeIds.has(chapter.volumeId) && isBodyChapter(chapter))
+  if (firstInVolume) return firstInVolume.id
+  const numbered = chapters.find(chapter => {
+    const parsed = parseChapterTitle(chapter.title)
+    return parsed.number !== null && isBodyChapter(chapter)
+  })
+  return numbered?.id ?? chapters.find(isBodyChapter)?.id ?? chapters[0]?.id ?? null
+}
 
 /**
  * Rewrites chapter titles in one numbering style while keeping the real name.
@@ -460,11 +478,14 @@ const UNNUMBERED_TITLES = ['前言', '序', '序言', '序章', '楔子', '引�
  */
 export function renumberChapters(chapters: EditableChapter[], volumes: Volume[], options: RenumberOptions): RenumberResult {
   const start = Math.max(1, Math.floor(options.start) || 1)
+  const requestedStart = options.fromChapterId ? chapters.findIndex(chapter => chapter.id === options.fromChapterId) : 0
+  const firstIndex = Math.max(0, requestedStart)
   const counters = new Map<string | null, number>()
   const carried = new Map<string | null, number>()
   let bookNumber = start
   let renamed = 0
-  const nextChapters = chapters.map(chapter => {
+  const nextChapters = chapters.map((chapter, index) => {
+    if (index < firstIndex) return chapter
     const parsed = parseChapterTitle(chapter.title)
     if (parsed.number === null && UNNUMBERED_TITLES.includes(parsed.text)) return chapter
     if (options.style === 'name' && !parsed.text) return chapter
@@ -494,7 +515,7 @@ export function renumberChapters(chapters: EditableChapter[], volumes: Volume[],
     return { ...chapter, title }
   })
   const volumesResult = options.renumberVolumes
-    ? renumberVolumeTitles(volumes, { style: options.style, start })
+    ? renumberVolumeTitles(volumes, { style: options.style, start, preserveExistingNumbers: true })
     : { volumes, renamed: 0 }
   const renamedVolumes = volumesResult.renamed
   const nextVolumes = volumesResult.volumes
