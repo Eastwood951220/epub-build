@@ -9,7 +9,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import {
   BookOpen, ChevronDown, ChevronUp, Download, FolderOpen, House, ImagePlus,
-  Layers, LibraryBig, ListTree, Plus, Save, Search, Settings2, Trash2,
+  Layers, Layers2, LibraryBig, ListTree, Plus, Save, Search, Settings2, Trash2,
 } from 'lucide-react'
 import {
   chapterGroups, chapterImagesAt, chapterStyle, chapterVolume, createChapterImage, createEmptyProject, createVolume, fontChoices,
@@ -24,15 +24,21 @@ import type { FindReplaceResult } from './chapters/findReplace'
 import { AUTOSAVE_INTERVAL_MS, shouldAutosave } from './editor/autosave'
 import { imageLinkUrls, replaceImageLinks } from './editor/imageLinks'
 import VolumeSettings from './settings/VolumeSettings'
+import VolumeBatchDialog from './settings/VolumeBatchDialog'
 import ChapterImagesSettings from './settings/ChapterImagesSettings'
 import LibraryPanel from './library/LibraryPanel'
+import CacheSettings from './settings/CacheSettings'
 import Home from './library/Home'
 import HeadingTitle from './chapters/HeadingTitle'
 import HeadingStyleControls, { type HeadingStyleKey } from './settings/HeadingStyleControls'
+import HexColorInput from './settings/HexColorInput'
 import EditorToolbar from './editor/EditorToolbar'
 import ChapterSidebarList from './chapters/ChapterSidebarList'
 import BookPreview from './preview/BookPreview'
-import { clampPanelWidth } from './editor/editorLayout'
+import {
+  clampPanelWidth, initialPanelWidth, LEFT_PANEL_DEFAULT_WIDTH, LEFT_PANEL_MIN_WIDTH,
+  RIGHT_PANEL_DEFAULT_WIDTH, RIGHT_PANEL_MIN_WIDTH,
+} from './editor/editorLayout'
 import { startWindowDrag } from './platform/windowDrag'
 import { scanImageBatch } from './editor/chapterImageScan'
 import { createSaveQueue } from './editor/saveQueue'
@@ -53,7 +59,7 @@ export default function App() {
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
   const [selectedId, setSelectedId] = useState(book.chapters[0].id)
   const [view, setView] = useState<View>('edit')
-  const [settingsTab, setSettingsTab] = useState<'settings' | 'library'>('settings')
+  const [settingsTab, setSettingsTab] = useState<'settings' | 'library' | 'cache'>('settings')
   const [assetKind, setAssetKind] = useState<AssetKind>('font')
   const [assetsByKind, setAssetsByKind] = useState<Record<AssetKind, AssetSummary[]>>({ font: [], image: [] })
   const [previewAsset, setPreviewAsset] = useState<AssetData | null>(null)
@@ -64,14 +70,15 @@ export default function App() {
   const [showEditorImages, setShowEditorImages] = useState(false)
   const [forcedPreviewTarget, setForcedPreviewTarget] = useState<{ chapterId: string; anchor: string } | null>(null)
   const [pendingImageCount, setPendingImageCount] = useState(0)
-  const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem('epub-studio-sidebar-width')) || 240)
-  const [settingsWidth, setSettingsWidth] = useState(() => Number(localStorage.getItem('epub-studio-settings-width')) || 294)
+  const [sidebarWidth, setSidebarWidth] = useState(() => initialPanelWidth(localStorage.getItem('epub-studio-sidebar-width'), 240, LEFT_PANEL_DEFAULT_WIDTH, LEFT_PANEL_MIN_WIDTH))
+  const [settingsWidth, setSettingsWidth] = useState(() => initialPanelWidth(localStorage.getItem('epub-studio-settings-width'), 294, RIGHT_PANEL_DEFAULT_WIDTH, RIGHT_PANEL_MIN_WIDTH))
   const [notice, setNotice] = useState('准备就绪')
   const [error, setError] = useState('')
   const [review, setReview] = useState<ReviewState | null>(null)
   const [findReplaceOpen, setFindReplaceOpen] = useState(false)
   const [reviewKey, setReviewKey] = useState(0)
   const [volumeSettingsId, setVolumeSettingsId] = useState<string | null>(null)
+  const [volumeBatchOpen, setVolumeBatchOpen] = useState(false)
   const [collapsedVolumeIds, setCollapsedVolumeIds] = useState<string[]>([])
   const selectedIdRef = useRef(selectedId)
   const bookRef = useRef(book)
@@ -313,6 +320,12 @@ export default function App() {
     updateBook(previous => ({ ...previous, volumes: [...previous.volumes, volume] }))
     setVolumeSettingsId(volume.id)
     setNotice('已添加卷，可设置卷首图与独立样式')
+  }
+
+  function saveVolumeBatch(next: Volume[]) {
+    updateBook(previous => ({ ...previous, volumes: next }))
+    setVolumeBatchOpen(false)
+    setNotice(`已更新 ${next.length} 个卷标题`)
   }
 
   function saveVolume(next: Volume) {
@@ -633,8 +646,8 @@ export default function App() {
     const node = workspaceRef.current
     if (!node || screen !== 'editor') return
     const observer = new ResizeObserver(() => {
-      setSidebarWidth(previous => clampPanelWidth(previous, node.clientWidth, settingsWidth))
-      setSettingsWidth(previous => clampPanelWidth(previous, node.clientWidth, sidebarWidth))
+      setSidebarWidth(previous => clampPanelWidth(previous, node.clientWidth, settingsWidth, LEFT_PANEL_MIN_WIDTH))
+      setSettingsWidth(previous => clampPanelWidth(previous, node.clientWidth, sidebarWidth, RIGHT_PANEL_MIN_WIDTH))
     })
     observer.observe(node)
     return () => observer.disconnect()
@@ -650,7 +663,7 @@ export default function App() {
     const drag = dragRef.current
     if (!drag || !workspaceRef.current) return
     const delta = event.clientX - drag.startX
-    const width = clampPanelWidth(drag.initialWidth + (drag.side === 'left' ? delta : -delta), workspaceRef.current.clientWidth, drag.oppositeWidth)
+    const width = clampPanelWidth(drag.initialWidth + (drag.side === 'left' ? delta : -delta), workspaceRef.current.clientWidth, drag.oppositeWidth, drag.side === 'left' ? LEFT_PANEL_MIN_WIDTH : RIGHT_PANEL_MIN_WIDTH)
     if (drag.side === 'left') setSidebarWidth(width)
     else setSettingsWidth(width)
   }
@@ -660,8 +673,8 @@ export default function App() {
     event.preventDefault()
     const delta = event.key === 'ArrowRight' ? 20 : -20
     const width = workspaceRef.current?.clientWidth ?? window.innerWidth
-    if (side === 'left') setSidebarWidth(current => clampPanelWidth(current + delta, width, settingsWidth))
-    else setSettingsWidth(current => clampPanelWidth(current - delta, width, sidebarWidth))
+    if (side === 'left') setSidebarWidth(current => clampPanelWidth(current + delta, width, settingsWidth, LEFT_PANEL_MIN_WIDTH))
+    else setSettingsWidth(current => clampPanelWidth(current - delta, width, sidebarWidth, RIGHT_PANEL_MIN_WIDTH))
   }
 
   const selectedStyle = previewStyles(chapterStyle(book, selectedChapter)) as CSSProperties
@@ -740,6 +753,13 @@ export default function App() {
       onImportBook={importFile}
       onImportProject={openProject}
     />
+    {volumeBatchOpen && <VolumeBatchDialog
+      volumes={book.volumes}
+      chapterCount={id => book.chapters.filter(chapter => chapter.volumeId === id).length}
+      busy={busy}
+      onCancel={() => setVolumeBatchOpen(false)}
+      onSave={saveVolumeBatch}
+    />}
     {reviewDialog}
   </>
 
@@ -759,7 +779,7 @@ export default function App() {
 
     <div className="workspace" ref={workspaceRef} style={{ gridTemplateColumns: `${sidebarWidth}px 6px minmax(0,1fr) 6px ${settingsWidth}px` }}>
       <aside className="sidebar" aria-label="章节列表">
-        <div className="panel-heading"><div><span className="eyebrow">内容导航</span><h2>章节目录 <small>{book.chapters.length}</small></h2></div><div className="heading-actions"><button className="icon-button" title="新建卷" aria-label="新建卷" onClick={addVolume}><Layers size={18}/></button><button className="icon-button" title="整理章节" aria-label="整理章节" onClick={() => openReview('manage', book)}><ListTree size={18}/></button><button className="icon-button" title="查找替换" aria-label="查找替换" onClick={() => setFindReplaceOpen(true)}><Search size={18}/></button><button className="icon-button add" title="添加章节" aria-label="添加章节" onClick={addChapter}><Plus size={20}/></button></div></div>
+        <div className="panel-heading"><div><span className="eyebrow">内容导航</span><h2>章节目录 <small>{book.chapters.length}</small></h2></div><div className="heading-actions"><button className="icon-button" title="新建卷" aria-label="新建卷" onClick={addVolume}><Layers size={18}/></button><button className="icon-button" title="卷批量编辑" aria-label="卷批量编辑" onClick={() => setVolumeBatchOpen(book.volumes.length > 0)} disabled={book.volumes.length === 0}><Layers2 size={18}/></button><button className="icon-button" title="整理章节" aria-label="整理章节" onClick={() => openReview('manage', book)}><ListTree size={18}/></button><button className="icon-button" title="查找替换" aria-label="查找替换" onClick={() => setFindReplaceOpen(true)}><Search size={18}/></button><button className="icon-button add" title="添加章节" aria-label="添加章节" onClick={addChapter}><Plus size={20}/></button></div></div>
         {pendingImageCount > 0 && <button className="sidebar-image-action" disabled={busy} onClick={() => void embedBodyImages()}><ImagePlus size={15}/>嵌入正文图片 <span>{pendingImageCount}</span></button>}
         <ChapterSidebarList
           groups={groups}
@@ -775,7 +795,7 @@ export default function App() {
         />
         <div className="sidebar-footer"><span>选中章节</span><div><button title="上移章节" aria-label="上移章节" disabled={selectedIndex <= 0} onClick={() => moveChapter(-1)}><ChevronUp size={17}/></button><button title="下移章节" aria-label="下移章节" disabled={selectedIndex >= book.chapters.length - 1} onClick={() => moveChapter(1)}><ChevronDown size={17}/></button><button title="删除章节" aria-label="删除章节" disabled={book.chapters.length === 1} onClick={() => deleteChapter()}><Trash2 size={16}/></button></div></div>
       </aside>
-      <div className="panel-resizer" role="separator" aria-label="调整章节目录宽度" aria-orientation="vertical" aria-valuemin={200} aria-valuemax={480} aria-valuenow={sidebarWidth} tabIndex={0} onPointerDown={event => beginPanelResize('left', event)} onPointerMove={movePanelResize} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }} onKeyDown={event => keyboardPanelResize('left', event)}/>
+      <div className="panel-resizer" role="separator" aria-label="调整章节目录宽度" aria-orientation="vertical" aria-valuemin={LEFT_PANEL_MIN_WIDTH} aria-valuemax={480} aria-valuenow={sidebarWidth} tabIndex={0} onPointerDown={event => beginPanelResize('left', event)} onPointerMove={movePanelResize} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }} onKeyDown={event => keyboardPanelResize('left', event)}/>
 
       <main className="main-panel">
         <div className="main-heading"><div><span className="eyebrow">书稿工作区</span><h1>{view === 'edit' ? '章节编辑' : '整书预览'}</h1></div><div className="view-switch" role="group" aria-label="视图切换"><button className={view === 'edit' ? 'selected' : ''} onClick={() => { if (view === 'preview') { beginChapterLoad(selectedId, true); setForcedPreviewTarget(null) } setView('edit') }}>编辑</button><button className={view === 'preview' ? 'selected' : ''} onClick={() => { chapterLoadingRef.current = false; setChapterLoading(false); setView('preview') }}>预览</button></div></div>
@@ -798,9 +818,9 @@ export default function App() {
           <BookPreview book={book} groups={groups} chapterIndex={chapterIndex} scrollRef={previewScrollRef} forcedChapterId={forcedPreviewTarget?.chapterId}/>
         </div>}
       </main>
-      <div className="panel-resizer" role="separator" aria-label="调整设置栏宽度" aria-orientation="vertical" aria-valuemin={200} aria-valuemax={480} aria-valuenow={settingsWidth} tabIndex={0} onPointerDown={event => beginPanelResize('right', event)} onPointerMove={movePanelResize} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }} onKeyDown={event => keyboardPanelResize('right', event)}/>
+      <div className="panel-resizer" role="separator" aria-label="调整设置栏宽度" aria-orientation="vertical" aria-valuemin={RIGHT_PANEL_MIN_WIDTH} aria-valuemax={480} aria-valuenow={settingsWidth} tabIndex={0} onPointerDown={event => beginPanelResize('right', event)} onPointerMove={movePanelResize} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }} onKeyDown={event => keyboardPanelResize('right', event)}/>
 
-      <aside className="settings-panel" aria-label="图书设置与资源库"><div className="settings-inner"><div className="settings-tabs" role="tablist" aria-label="侧边栏"><button role="tab" aria-selected={settingsTab === 'settings'} className={settingsTab === 'settings' ? 'active' : ''} onClick={() => setSettingsTab('settings')}>图书设置</button><button role="tab" aria-selected={settingsTab === 'library'} className={settingsTab === 'library' ? 'active' : ''} onClick={() => setSettingsTab('library')}><LibraryBig size={15}/>资源库</button></div>{settingsTab === 'settings' ? <><div className="panel-heading"><div><span className="eyebrow">统一管理</span><h2>图书设置</h2></div></div>
+      <aside className="settings-panel" aria-label="图书设置与资源库"><div className="settings-inner"><div className="settings-tabs" role="tablist" aria-label="侧边栏"><button role="tab" aria-selected={settingsTab === 'settings'} className={settingsTab === 'settings' ? 'active' : ''} onClick={() => setSettingsTab('settings')}>图书设置</button><button role="tab" aria-selected={settingsTab === 'library'} className={settingsTab === 'library' ? 'active' : ''} onClick={() => setSettingsTab('library')}><LibraryBig size={15}/>资源库</button><button role="tab" aria-selected={settingsTab === 'cache'} className={settingsTab === 'cache' ? 'active' : ''} onClick={() => setSettingsTab('cache')}><Settings2 size={15}/>缓存</button></div>{settingsTab === 'settings' ? <><div className="panel-heading"><div><span className="eyebrow">统一管理</span><h2>图书设置</h2></div></div>
         <section className="setting-section"><h3>基本信息</h3><label>书名<input value={book.title} onChange={event => updateBook(previous => ({ ...previous, title: event.target.value }))}/></label><label>作者<input value={book.author} onChange={event => updateBook(previous => ({ ...previous, author: event.target.value }))}/></label><label>语言<input value={book.language} onChange={event => updateBook(previous => ({ ...previous, language: event.target.value }))}/></label></section>
         <section className="setting-section"><h3>图书封面</h3><p className="setting-help">创建工程时可留空，保存后会显示在工程书架，并写入 EPUB。</p>{book.coverImage ? <div className="cover-slot"><img src={book.coverImage} alt="图书封面预览"/><div><button className="button outline" onClick={() => chooseImage('coverImage')}>更换封面</button><button className="button subtle" onClick={() => updateBook(previous => ({ ...previous, coverImage: null }))}>移除</button></div></div> : <button className="image-add" onClick={() => chooseImage('coverImage')}><ImagePlus size={17}/>上传封面</button>}</section>
         <HeadingStyleControls label="章节序号" styleKey="chapterNumberStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
@@ -808,7 +828,7 @@ export default function App() {
         <HeadingStyleControls label="卷序号" styleKey="volumeNumberStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
         <HeadingStyleControls label="卷名称" styleKey="volumeNameStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
         <section className="setting-section"><h3>正文</h3><label>字体<select value={book.style.bodyFontFamily} onChange={event => setStyle('bodyFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>字号<input type="number" min="10" max="48" value={book.style.bodyFontSize} onChange={event => setStyle('bodyFontSize', Number(event.target.value))}/></label><label>行距<input type="number" min="1.2" max="3" step="0.1" value={book.style.bodyLineHeight} onChange={event => setStyle('bodyLineHeight', Number(event.target.value))}/></label></div><label>对齐<select value={book.style.bodyAlign} onChange={event => setStyle('bodyAlign', event.target.value)}><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label><label className="setting-checkbox"><input type="checkbox" checked={!!book.style.bodyFirstLineIndent} onChange={event => setStyle('bodyFirstLineIndent', event.target.checked)}/>首行缩进两字（2em）</label></section>
-        <section className="setting-section"><h3>备注样式</h3><label>备注字体<select value={book.style.noteFontFamily ?? 'serif'} onChange={event => setStyle('noteFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>备注字号<input type="number" min="10" max="32" value={book.style.noteFontSize ?? 14} onChange={event => setStyle('noteFontSize', Number(event.target.value))}/></label><label>备注颜色<input type="color" value={book.style.noteColor ?? '#526963'} onChange={event => setStyle('noteColor', event.target.value)}/></label></div><div className="field-row"><label>标记字号<input type="number" min="8" max="32" value={book.style.noteMarkerSize ?? 12} onChange={event => setStyle('noteMarkerSize', Number(event.target.value))}/></label><label>标记颜色<input type="color" value={book.style.noteMarkerColor ?? '#0b8578'} onChange={event => setStyle('noteMarkerColor', event.target.value)}/></label></div></section>
+        <section className="setting-section"><h3>备注样式</h3><label>备注字体<select value={book.style.noteFontFamily ?? 'serif'} onChange={event => setStyle('noteFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>备注字号<input type="number" min="10" max="32" value={book.style.noteFontSize ?? 14} onChange={event => setStyle('noteFontSize', Number(event.target.value))}/></label><label>备注颜色<HexColorInput label="备注颜色" value={book.style.noteColor ?? '#526963'} onChange={color => setStyle('noteColor', color)}/></label></div><div className="field-row"><label>标记字号<input type="number" min="8" max="32" value={book.style.noteMarkerSize ?? 12} onChange={event => setStyle('noteMarkerSize', Number(event.target.value))}/></label><label>标记颜色<HexColorInput label="标记颜色" value={book.style.noteMarkerColor ?? '#0b8578'} onChange={color => setStyle('noteMarkerColor', color)}/></label></div></section>
         <ChapterImagesSettings
           entries={book.chapterImages}
           chapters={book.chapters}
@@ -818,7 +838,7 @@ export default function App() {
           onPickImage={pickImage}
           onChange={entries => updateBook(previous => ({ ...previous, chapterImages: entries }))}
         />
-      </> : <LibraryPanel
+      </> : settingsTab === 'library' ? <LibraryPanel
           kind={assetKind}
           assets={assets}
           counts={{ font: assetsByKind.font.length, image: assetsByKind.image.length }}
@@ -832,7 +852,7 @@ export default function App() {
           onClosePreview={() => setPreviewAsset(null)}
           onUseFont={(asset, target) => void useFont(asset, target)}
           onUseImage={(asset, target) => void useLibraryImage(asset, target)}
-        />}</div></aside>
+        /> : <CacheSettings/>}</div></aside>
     </div>
     <footer className="statusbar"><span className={error ? 'status-error' : ''}>{error || notice}</span><span>{chapterLoading ? '正在加载章节…' : busy ? '处理中…' : `${book.chapters.length} 章 · ${view === 'edit' ? '编辑模式' : '预览模式'}`}</span></footer>
     {editingVolume && <VolumeSettings
@@ -846,6 +866,13 @@ export default function App() {
       onCancel={() => setVolumeSettingsId(null)}
       onSave={saveVolume}
       onDelete={deleteVolume}
+    />}
+    {volumeBatchOpen && <VolumeBatchDialog
+      volumes={book.volumes}
+      chapterCount={id => book.chapters.filter(chapter => chapter.volumeId === id).length}
+      busy={busy}
+      onCancel={() => setVolumeBatchOpen(false)}
+      onSave={saveVolumeBatch}
     />}
     {reviewDialog}
     {findReplaceOpen && <FindReplace chapters={book.chapters} volumes={book.volumes} onClose={() => setFindReplaceOpen(false)} onApply={applyFindReplace}/>}

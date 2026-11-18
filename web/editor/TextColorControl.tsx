@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
 import { X } from 'lucide-react'
+import HexColorInput from '../settings/HexColorInput'
 
 /** Common text colours; WKWebView does not reliably open the native picker. */
 const PALETTE = ['#1f2937', '#dc2626', '#ea580c', '#d97706', '#16a34a', '#0d9488', '#2563eb', '#7c3aed', '#db2777', '#0ea5e9', '#475569', '#94a3b8']
@@ -117,7 +118,7 @@ export default function TextColorControl({ editor }: TextColorControlProps) {
           onClick={() => apply(color)}
         />)}
       </div>
-      <label className="text-color-custom">自定义颜色<input type="color" value={custom} onChange={event => apply(event.target.value, false)}/></label>
+      <div className="text-color-custom"><span>自定义颜色</span><HexColorInput label="文字颜色" value={custom} onChange={color => apply(color, false)}/></div>
       <button type="button" className="text-color-clear" onMouseDown={event => event.preventDefault()} onClick={clear}><X size={13}/>清除颜色</button>
     </div>}
   </div>

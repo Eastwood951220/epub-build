@@ -126,7 +126,7 @@ export default function ChapterImagesSettings({
                   {group.volume && <div className="ci-group-title">{group.volume.title}</div>}
                   {group.chapters.map(chapter => <label className="ci-option" key={chapter.id}>
                     <input type="checkbox" checked={scopeIds.includes(chapter.id)} onChange={() => toggleScopeId(entry, chapter.id)} />
-                    <span>{chapter.title || '未命名章节'}</span>
+                    <span title={chapter.title || '未命名章节'}>{chapter.title || '未命名章节'}</span>
                   </label>)}
                 </div>)}
               </div>
@@ -134,7 +134,7 @@ export default function ChapterImagesSettings({
                 ? <div className="ci-options">
                   {volumes.map(volume => <label className="ci-option" key={volume.id}>
                     <input type="checkbox" checked={scopeIds.includes(volume.id)} onChange={() => toggleScopeId(entry, volume.id)} />
-                    <span>{volume.title || '未命名卷'}</span>
+                    <span title={volume.title || '未命名卷'}>{volume.title || '未命名卷'}</span>
                   </label>)}
                 </div>
                 : <p className="ci-empty">还没有卷，先在左侧新建卷。</p>}

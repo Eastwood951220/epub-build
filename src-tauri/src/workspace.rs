@@ -35,7 +35,13 @@ impl WorkspaceStore {
             cover_image TEXT,
             book_json TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        ); CREATE INDEX IF NOT EXISTS projects_recent ON projects(updated_at DESC, id DESC);",
+        ); CREATE INDEX IF NOT EXISTS projects_recent ON projects(updated_at DESC, id DESC);
+           CREATE TABLE IF NOT EXISTS project_asset_groups (
+             project_id INTEGER PRIMARY KEY,
+             project_updated_at TEXT NOT NULL,
+             library_revision INTEGER NOT NULL,
+             group_json TEXT NOT NULL
+           );",
             )
             .map_err(|e| format!("初始化工程数据库失败：{e}"))?;
         let has_cover = connection
@@ -105,6 +111,28 @@ impl WorkspaceStore {
         Ok(book)
     }
 
+    pub fn project_version(&self, id: i64) -> Result<String, String> {
+        self.0.query_row("SELECT updated_at FROM projects WHERE id=?1", [id], |row| row.get(0))
+            .optional().map_err(|e| e.to_string())?.ok_or_else(|| "工程不存在".into())
+    }
+
+    pub fn cached_asset_group(&self, id: i64, version: &str, library_revision: i64) -> Result<Option<String>, String> {
+        self.0.query_row(
+            "SELECT group_json FROM project_asset_groups WHERE project_id=?1 AND project_updated_at=?2 AND library_revision=?3",
+            params![id, version, library_revision], |row| row.get(0),
+        ).optional().map_err(|e| e.to_string())
+    }
+
+    pub fn save_asset_group(&self, id: i64, version: &str, library_revision: i64, json: &str) -> Result<(), String> {
+        // A save during the scan must not cache a directory for a newer book.
+        self.0.execute(
+            "INSERT OR REPLACE INTO project_asset_groups(project_id,project_updated_at,library_revision,group_json)
+             SELECT id,updated_at,?3,?4 FROM projects WHERE id=?1 AND updated_at=?2",
+            params![id, version, library_revision, json],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     pub fn save(&self, id: i64, book: &Project) -> Result<(), String> {
         validate_project(book)?;
         let json = serde_json::to_string(book).map_err(|e| e.to_string())?;
@@ -114,6 +142,8 @@ impl WorkspaceStore {
         if updated == 0 {
             return Err("工程不存在".into());
         }
+        self.0.execute("DELETE FROM project_asset_groups WHERE project_id=?1", [id])
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -125,6 +155,8 @@ impl WorkspaceStore {
         if deleted == 0 {
             return Err("工程不存在".into());
         }
+        self.0.execute("DELETE FROM project_asset_groups WHERE project_id=?1", [id])
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 }

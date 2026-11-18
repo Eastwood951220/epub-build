@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { backend, type AssetData, type AssetKind, type AssetSummary, type WorkspaceSummary } from '../platform/backend'
+import {
+  backend, type AssetKind, type AssetSummary,
+  type ProjectAssetGroup, type ProjectAssetRef, type WorkspaceSummary,
+} from '../platform/backend'
 import { open } from '@tauri-apps/plugin-dialog'
-import { BookOpen, FilePlus2, FolderOpen, Image as ImageIcon, Plus, Trash2, Type, X } from 'lucide-react'
+import { BookOpen, ChevronDown, FilePlus2, FolderOpen, Image as ImageIcon, Plus, Settings2, Trash2, Type, X } from 'lucide-react'
 import { startWindowDrag } from '../platform/windowDrag'
+import { assetMeta, kindLabel, markShared, pendingAssets } from './projectAssets'
+import SettingsDialog from '../settings/SettingsDialog'
 
 export type { WorkspaceSummary } from '../platform/backend'
 
@@ -20,35 +25,145 @@ interface Props {
   onImportProject: () => Promise<void>
 }
 
+interface PreviewState { name: string; kind: AssetKind; mime: string; dataUri: string; family: string }
+
 const filters = {
   font: [{ name: '字体', extensions: ['ttf', 'otf', 'woff', 'woff2'] }],
   image: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] }],
 }
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
 
-function ImageThumbnail({ asset }: { asset: AssetSummary }) {
+// A large project is expensive to parse. Keep thumbnail requests from
+// competing with each other while the user scrolls through its cards.
+let activeProjectImageLoads = 0
+const waitingProjectImageLoads: Array<() => void> = []
+function queueProjectImage(load: () => Promise<string>, signal: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const start = () => {
+      if (signal.aborted) { reject(new Error('已取消')); waitingProjectImageLoads.shift()?.(); return }
+      activeProjectImageLoads++
+      void load().then(resolve, reject).finally(() => {
+        activeProjectImageLoads--
+        waitingProjectImageLoads.shift()?.()
+      })
+    }
+    if (activeProjectImageLoads < 2) start()
+    else waitingProjectImageLoads.push(start)
+  })
+}
+
+/** Loads its picture only once the card scrolls near the viewport. */
+function LazyImage({ name, load }: { name: string; load: (signal: AbortSignal) => Promise<string> }) {
   const element = useRef<HTMLDivElement>(null)
+  const loader = useRef(load)
   const [source, setSource] = useState<string | null>(null)
+  useEffect(() => { loader.current = load })
   useEffect(() => {
     const target = element.current
     if (!target) return
+    let active = true
+    const controller = new AbortController()
     const observer = new IntersectionObserver(entries => {
       if (!entries[0].isIntersecting) return
       observer.disconnect()
-      void backend.getAsset(asset.id).then(data => setSource(data.dataUri)).catch(() => {})
-    }, { rootMargin: '100px' })
+      void loader.current(controller.signal).then(uri => {
+        if (!active) return
+        const picture = new Image()
+        picture.onload = () => {
+          if (!active) return
+          const scale = Math.min(1, 480 / picture.naturalWidth, 320 / picture.naturalHeight)
+          const canvas = document.createElement('canvas')
+          canvas.width = Math.max(1, Math.round(picture.naturalWidth * scale))
+          canvas.height = Math.max(1, Math.round(picture.naturalHeight * scale))
+          try {
+            const context = canvas.getContext('2d')
+            if (!context) throw new Error('缩略图画布不可用')
+            context.drawImage(picture, 0, 0, canvas.width, canvas.height)
+            setSource(canvas.toDataURL('image/webp', .82))
+          } catch { setSource(uri) }
+        }
+        picture.onerror = () => { if (active) setSource(null) }
+        picture.src = uri
+      }).catch(() => {})
+    }, { rootMargin: '24px' })
     observer.observe(target)
-    return () => observer.disconnect()
-  }, [asset.id])
-  return <div className="books-asset-symbol" ref={element}>{source ? <img src={source} alt={asset.name}/> : <ImageIcon size={30}/>}</div>
+    return () => { active = false; controller.abort(); observer.disconnect() }
+  }, [])
+  return <div className="books-asset-symbol books-asset-picture" ref={element}>{source ? <img src={source} alt={name} decoding="async"/> : <ImageIcon size={30}/>}</div>
+}
+
+interface GroupProps {
+  project: WorkspaceSummary
+  kind: AssetKind
+  group?: ProjectAssetGroup
+  groupError?: string
+  busy: boolean
+  onLoad: (projectId: number) => Promise<void>
+  onPreview: (projectId: number, item: ProjectAssetRef) => void
+  onExtract: (projectId: number, items: ProjectAssetRef[]) => void
+}
+
+/** Opening a project reads the full book, so fetch only after the user expands it. */
+function ProjectGroup({ project, kind, group, groupError, busy, onLoad, onPreview, onExtract }: GroupProps) {
+  const [expanded, setExpanded] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(24)
+
+  async function toggle() {
+    if (expanded) { setExpanded(false); return }
+    setExpanded(true)
+    if (group || loading) return
+    setLoading(true)
+    try { await onLoad(project.id) } finally { setLoading(false) }
+  }
+
+  const items = group ? (kind === 'font' ? group.fonts : group.images) : []
+  const pending = pendingAssets(items)
+  const label = kindLabel(kind)
+  return <div className="books-library-group">
+    <div className="books-library-group-head">
+      <button className="books-group-toggle" aria-expanded={expanded} onClick={() => void toggle()} title={`查看 ${project.title} 的${label}`}>
+        <ChevronDown size={17}/><span>{project.title}</span>
+      </button>
+      <small>{group ? `${items.length} 项${label}` : loading ? '读取中…' : '点击展开'}</small>
+      {expanded && pending.length > 0 && <button className="books-group-action" onClick={() => onExtract(project.id, pending)} disabled={busy}>
+        {kind === 'font' ? '全部放入字体库' : '全部提取为公用'}
+      </button>}
+    </div>
+    {expanded && (groupError ? <p className="books-library-group-note" role="alert">{groupError}</p>
+      : !group ? <p className="books-library-group-note">正在读取工程资源…</p>
+        : items.length === 0 ? <p className="books-library-group-note">这个工程还没有{label}。</p>
+          : <><div className="books-assets-grid">{items.slice(0, visibleCount).map(item => <article className="books-asset-item" key={item.key}>
+            {kind === 'font'
+              ? <div className="books-asset-symbol"><Type size={30}/></div>
+              : <LazyImage name={item.name} load={signal => queueProjectImage(
+                () => backend.readProjectAsset(project.id, item.key).then(data => data.dataUri), signal,
+              )}/>}
+            <strong title={item.name}>{item.name}</strong>
+            <small>{assetMeta(item)}{item.inLibrary ? ' · 已公用' : ''}</small>
+            <div>
+              <button onClick={() => onPreview(project.id, item)} disabled={busy}>预览</button>
+              <button className="books-asset-take" onClick={() => onExtract(project.id, [item])} disabled={busy || item.inLibrary} title={item.inLibrary ? '公用库中已有同一份' : (kind === 'font' ? '复制到字体库' : '复制到公用图片')}>
+                {item.inLibrary ? '已公用' : (kind === 'font' ? '放入字体库' : '提取公用')}
+              </button>
+            </div>
+          </article>)}</div>
+            {items.length > visibleCount && <button className="books-show-more" onClick={() => setVisibleCount(count => count + 24)}>
+              显示更多 · 还有 {items.length - visibleCount} 项
+            </button>}</>)}
+  </div>
 }
 
 export default function Home({ workspaces, busy, error, notice, onCreate, onOpen, onDelete, onImportBook, onImportProject }: Props) {
   const [tab, setTab] = useState<Tab>('projects')
   const [showCreate, setShowCreate] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [details, setDetails] = useState<NewWorkspaceDetails>({ title: '', author: '', language: 'zh-CN' })
   const [assets, setAssets] = useState<AssetSummary[]>([])
-  const [preview, setPreview] = useState<AssetData | null>(null)
+  const [groups, setGroups] = useState<Record<number, ProjectAssetGroup>>({})
+  const [groupRevision, setGroupRevision] = useState(0)
+  const [groupErrors, setGroupErrors] = useState<Record<number, string>>({})
+  const [preview, setPreview] = useState<PreviewState | null>(null)
   const [libraryBusy, setLibraryBusy] = useState(false)
   const [libraryError, setLibraryError] = useState('')
   const [libraryNotice, setLibraryNotice] = useState('')
@@ -85,22 +200,71 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
     await withLibraryBusy(async () => {
       await backend.importAsset(path, kind)
       setAssets(await backend.listAssets(kind))
-      setLibraryNotice('资源已导入公共库')
+      setGroups({})
+      setGroupErrors({})
+      setGroupRevision(previous => previous + 1)
+      setLibraryNotice('资源已导入公用库')
     })
   }
 
   async function deleteAsset(asset: AssetSummary) {
-    if (!window.confirm(`从公共资源库删除“${asset.name}”？已用于工程的资源仍会保留。`)) return
+    if (!window.confirm(`从公用资源库删除“${asset.name}”？已用于工程的资源仍会保留。`)) return
     await withLibraryBusy(async () => {
       await backend.deleteAsset(asset.id)
       setAssets(await backend.listAssets(kind))
-      if (preview?.id === asset.id) setPreview(null)
+      // The shared mark on project cards may be stale now.
+      setGroups({})
+      setGroupErrors({})
+      setGroupRevision(previous => previous + 1)
+      if (preview?.name === asset.name) setPreview(null)
       setLibraryNotice('资源已删除')
     })
   }
 
   async function previewAsset(asset: AssetSummary) {
-    await withLibraryBusy(async () => setPreview(await backend.getAsset(asset.id)))
+    await withLibraryBusy(async () => {
+      const data = await backend.getAsset(asset.id)
+      setPreview({ name: data.name, kind: asset.kind, mime: data.mime, dataUri: data.dataUri, family: asset.kind === 'font' ? `EPUBStudioFont${asset.id}` : '' })
+    })
+  }
+
+  async function loadGroup(projectId: number) {
+    try {
+      const group = await backend.listProjectAssets(projectId)
+      setGroups(previous => ({ ...previous, [projectId]: group }))
+      setGroupErrors(previous => {
+        if (!(projectId in previous)) return previous
+        const next = { ...previous }
+        delete next[projectId]
+        return next
+      })
+    } catch (cause) {
+      setGroupErrors(previous => ({ ...previous, [projectId]: errorMessage(cause) }))
+    }
+  }
+
+  async function previewProjectAsset(projectId: number, item: ProjectAssetRef) {
+    await withLibraryBusy(async () => {
+      const data = await backend.readProjectAsset(projectId, item.key)
+      setPreview({
+        name: data.name, kind, mime: data.mime, dataUri: data.dataUri,
+        family: kind === 'font' ? `EPUBStudioFont${item.key}` : '',
+      })
+    })
+  }
+
+  async function extractProjectAssets(projectId: number, items: ProjectAssetRef[]) {
+    const pending = pendingAssets(items)
+    if (pending.length === 0) return
+    await withLibraryBusy(async () => {
+      for (const item of pending) await backend.extractProjectAsset(projectId, item.key)
+      const keys = pending.map(item => item.key)
+      setGroups(previous => previous[projectId]
+        ? { ...previous, [projectId]: { ...previous[projectId], ...markShared(previous[projectId], kind, keys) } }
+        : previous)
+      setAssets(await backend.listAssets(kind))
+      setLibraryNotice(`已把 ${keys.length} 项${kindLabel(kind)}放入公用库`)
+    })
   }
 
   function create(event: FormEvent<HTMLFormElement>) {
@@ -109,8 +273,11 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
     void onCreate(details)
   }
 
-  const fontPreviewCss = preview?.kind === 'font' && /^font\/(ttf|otf|woff|woff2)$/.test(preview.mime) && new RegExp(`^data:${preview.mime};base64,[A-Za-z0-9+/=]+$`).test(preview.dataUri)
-    ? `@font-face{font-family:'EPUBStudioFont${preview.id}';src:url('${preview.dataUri}')}` : ''
+  const label = kindLabel(kind)
+  // Only a data URI whose MIME matches can reach the @font-face rule.
+  const fontPreviewCss = preview?.family && /^font\/(ttf|otf|woff|woff2)$/.test(preview.mime)
+    && new RegExp(`^data:${preview.mime};base64,[A-Za-z0-9+/=]+$`).test(preview.dataUri)
+    ? `@font-face{font-family:'${preview.family}';src:url('${preview.dataUri}')}` : ''
 
   return <div className="books-home">
     <style>{fontPreviewCss}</style>
@@ -119,6 +286,7 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
       <div className="books-header-actions">
         <button onClick={onImportBook} disabled={busy}><FilePlus2 size={16}/>导入 TXT / EPUB</button>
         <button onClick={onImportProject} disabled={busy}><FolderOpen size={16}/>导入项目</button>
+        <button onClick={() => setShowSettings(true)} title="设置" aria-label="设置"><Settings2 size={16}/>设置</button>
         <button className="books-new" onClick={() => setShowCreate(true)} disabled={busy}><Plus size={17}/>新建工程</button>
       </div>
     </header>
@@ -142,14 +310,20 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
           </article>)}
           <button className="books-add-tile" onClick={() => setShowCreate(true)}><Plus size={32}/><span>新建工程</span></button>
         </div>}
-      </section> : <section aria-label={tab === 'font' ? '字体库' : '图片库'}>
-        <div className="books-section-title"><div><span>SHARED ASSETS</span><h1>{tab === 'font' ? '字体库' : '图片库'}</h1></div><button className="books-new" onClick={importAsset} disabled={libraryBusy}><Plus size={17}/>导入{tab === 'font' ? '字体' : '图片'}</button></div>
-        <p className="books-library-help">资源由所有工程共享。选入书稿后会随工程保存。</p>
-        {preview && <div className="books-asset-preview"><div><strong>{preview.name}</strong><button onClick={() => setPreview(null)} aria-label="关闭预览"><X size={18}/></button></div>{preview.kind === 'image' ? <img src={preview.dataUri} alt={preview.name}/> : <p style={{fontFamily:`'EPUBStudioFont${preview.id}',serif`}}>春江花月夜 · ABC 123</p>}</div>}
-        {assets.length === 0 ? <div className="books-empty"><span>{tab === 'font' ? <Type size={36}/> : <ImageIcon size={36}/>}</span><h2>还没有{tab === 'font' ? '字体' : '图片'}</h2><p>点击右上角导入，之后可在任何工程中使用。</p></div> : <div className="books-assets-grid">{assets.map(asset => <article className="books-asset-item" key={asset.id}>{tab === 'font' ? <div className="books-asset-symbol"><Type size={30}/></div> : <ImageThumbnail asset={asset}/>}<strong title={asset.name}>{asset.name}</strong><small>{asset.mime} · {(asset.size / 1024).toFixed(1)} KB</small><div><button onClick={() => previewAsset(asset)} disabled={libraryBusy}>预览</button><button onClick={() => deleteAsset(asset)} disabled={libraryBusy} title={`删除 ${asset.name}`} aria-label={`删除 ${asset.name}`}><Trash2 size={16}/></button></div></article>)}</div>}
+      </section> : <section aria-label={label}>
+        <div className="books-section-title"><div><span>SHARED ASSETS</span><h1>{label}</h1></div><button className="books-new" onClick={importAsset} disabled={libraryBusy}><Plus size={17}/>导入{label}</button></div>
+        <p className="books-library-help">公用{label}由所有工程共享；工程{label}来自各书稿内嵌的资源，提取只是复制一份，书稿本身不变。</p>
+        {preview && <div className="books-asset-preview"><div><strong>{preview.name}</strong><button onClick={() => setPreview(null)} aria-label="关闭预览"><X size={18}/></button></div>{preview.kind === 'image' ? <img src={preview.dataUri} alt={preview.name}/> : <p style={{fontFamily:`'${preview.family}',serif`}}>春江花月夜 · ABC 123</p>}</div>}
+        <div className="books-subhead">公用{label}<em>{assets.length}</em></div>
+        {assets.length === 0 ? <div className="books-empty"><span>{tab === 'font' ? <Type size={36}/> : <ImageIcon size={36}/>}</span><h2>还没有公用{label}</h2><p>点击右上角导入，之后可在任何工程中使用。</p></div> : <div className="books-assets-grid">{assets.map(asset => <article className="books-asset-item" key={asset.id}>{tab === 'font' ? <div className="books-asset-symbol"><Type size={30}/></div> : <LazyImage name={asset.name} load={() => backend.getAsset(asset.id).then(data => data.dataUri)}/>}<strong title={asset.name}>{asset.name}</strong><small>{assetMeta(asset)}</small><div><button onClick={() => previewAsset(asset)} disabled={libraryBusy}>预览</button><button onClick={() => deleteAsset(asset)} disabled={libraryBusy} title={`删除 ${asset.name}`} aria-label={`删除 ${asset.name}`}><Trash2 size={16}/></button></div></article>)}</div>}
+        <div className="books-subhead">工程{label}<em>{workspaces.length}</em></div>
+        {workspaces.length === 0 ? <p className="books-library-group-note">还没有工程，创建或导入一本后这里会列出它内嵌的{label}。</p> : workspaces.map(project => <ProjectGroup
+          key={`${project.id}-${groupRevision}`} project={project} kind={kind} group={groups[project.id]} groupError={groupErrors[project.id]}
+          busy={libraryBusy} onLoad={loadGroup} onPreview={previewProjectAsset} onExtract={extractProjectAssets}/>)}
       </section>}
     </div></div>
-    <footer className="books-home-status"><span>{libraryNotice || notice}</span><span>{busy || libraryBusy ? '处理中…' : '本机工程 · 公共资源库'}</span></footer>
+    <footer className="books-home-status"><span>{libraryNotice || notice}</span><span>{busy || libraryBusy ? '处理中…' : '本机工程 · 公用资源库'}</span></footer>
+    {showSettings && <SettingsDialog onClose={() => setShowSettings(false)}/>}
     {showCreate && <div className="books-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setShowCreate(false) }}><form className="books-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-title" onSubmit={create}>
       <div className="books-modal-heading"><div><span>NEW PROJECT</span><h2 id="create-title">创建工程</h2></div><button type="button" onClick={() => setShowCreate(false)} aria-label="关闭"><X size={19}/></button></div>
       <p>填写图书基本信息。封面可在进入工程后上传。</p>

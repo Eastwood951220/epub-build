@@ -14,6 +14,45 @@ export type AssetKind = 'font' | 'image'
 export interface AssetSummary { id: number; kind: AssetKind; name: string; mime: string; size: number }
 export interface AssetData { id: number; kind: AssetKind; name: string; mime: string; dataUri: string }
 
+/** A font or picture already embedded in one project, before it is shared. */
+export interface ProjectAssetRef {
+  /** Content fingerprint, stable while the bytes stay the same. */
+  key: string
+  name: string
+  mime: string
+  size: number
+  /** True once identical bytes already sit in the shared library. */
+  inLibrary: boolean
+}
+export interface ProjectAssetGroup {
+  projectId: number
+  projectTitle: string
+  fonts: ProjectAssetRef[]
+  images: ProjectAssetRef[]
+}
+export interface ProjectAssetData { key: string; name: string; mime: string; dataUri: string }
+
+/** Where the app keeps its data, shown by the settings dialog. */
+export interface StoragePaths {
+  dataDir: string
+  database: string
+  cacheDir: string
+  documentsDir: string
+  /** True while the preview cache sits in Documents rather than a fallback. */
+  cacheInDocuments: boolean
+  version: string
+}
+
+/** Disposable preview cache; clearing it never touches library or projects. */
+export interface CacheUsage { files: number; bytes: number }
+export interface CacheStats {
+  path: string
+  totalFiles: number
+  totalBytes: number
+  fonts: CacheUsage
+  images: CacheUsage
+}
+
 /** The desktop command contract used by the editor and bookshelf. */
 export const backend = {
   listWorkspaces: () => invoke<WorkspaceSummary[]>('list_workspaces'),
@@ -25,6 +64,16 @@ export const backend = {
   importAsset: (path: string, kind: AssetKind) => invoke<AssetSummary>('import_asset', { path, kind }),
   getAsset: (id: number) => invoke<AssetData>('get_asset', { id }),
   deleteAsset: (id: number) => invoke<void>('delete_asset', { id }),
+  listProjectAssets: (projectId: number) => invoke<ProjectAssetGroup>('list_project_assets', { projectId }),
+  readProjectAsset: (projectId: number, key: string) =>
+    invoke<ProjectAssetData>('read_project_asset', { projectId, key }),
+  extractProjectAsset: (projectId: number, key: string) =>
+    invoke<AssetSummary>('extract_project_asset', { projectId, key }),
+  storagePaths: () => invoke<StoragePaths>('storage_paths'),
+  revealDataDir: () => invoke<void>('reveal_data_dir'),
+  cacheStats: () => invoke<CacheStats>('cache_stats'),
+  cacheClear: () => invoke<number>('cache_clear'),
+  cacheReveal: () => invoke<void>('cache_reveal'),
   importBook: (path: string) => invoke<Project>('import_book', { path }),
   redetectTxt: (path: string, chapterPattern?: string, volumePattern?: string) =>
     invoke<Project>('redetect_txt', { path, chapterPattern, volumePattern }),
