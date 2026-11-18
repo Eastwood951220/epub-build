@@ -12,7 +12,7 @@ import {
   Layers, Layers2, LibraryBig, ListTree, Plus, Save, Search, Settings2, Trash2,
 } from 'lucide-react'
 import {
-  chapterBackgroundStyle, chapterNumberBackgroundStyle, chapterGroups, chapterImagesAt, chapterStyle, chapterVolume, createChapterImage, createEmptyProject, createVolume, fontChoices,
+  chapterBackgroundStyle, chapterNameBackgroundStyle, chapterNumberBackgroundStyle, chapterGroups, chapterImagesAt, chapterStyle, chapterVolume, createChapterImage, createEmptyProject, createVolume, fontChoices,
   noteBoxStyle, previewStyles, reindexChapterLinks, type BookStyle, type EditableChapter, type NoteBoxStyle, type Project, type Volume,
 } from './book/model'
 import { PreserveIds } from './chapters/PreserveIds'
@@ -283,6 +283,13 @@ export default function App() {
     if (!image) return
     updateBook(previous => ({ ...previous, chapterNumberBackgroundImage: image }))
     setNotice('已设置章节序号背景图')
+  }
+
+  async function chooseChapterNameBackground() {
+    const image = await pickImage()
+    if (!image) return
+    updateBook(previous => ({ ...previous, chapterNameBackgroundImage: image }))
+    setNotice('已设置章节名称背景图')
   }
 
   function chooseBookFont(key: 'bodyFontFamily' | 'noteFontFamily', family: string) {
@@ -914,7 +921,7 @@ export default function App() {
           <div className="chapter-title-field"><label htmlFor="chapter-title">章节标题</label><input id="chapter-title" value={selectedChapter.title} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, title: event.target.value } : chapter) }))} /><select aria-label="章节标题排列" value={selectedChapter.titleLayout ?? 'stacked'} onChange={event => updateBook(previous => ({ ...previous, chapters: previous.chapters.map(chapter => chapter.id === selectedId ? { ...chapter, titleLayout: event.target.value as 'inline' | 'stacked' } : chapter) }))}><option value="stacked">分两行</option><option value="inline">同一行</option></select></div>
           <EditorToolbar editor={editor} availableFonts={availableFonts} showEditorImages={showEditorImages} onSelectFont={chooseSelectedTextFont} onAddNote={addNote} onAddNoteBox={addNoteBox} onChooseImage={() => void chooseImage('inline')} onToggleImages={() => setShowEditorImages(value => !value)}/>
           <div className={`editor-stage ${showEditorImages ? "" : "images-hidden"}`} aria-busy={chapterLoading}>
-          <div className="editor-scroll" ref={editorScrollRef}><div className={`paper edit-paper${book.noteMarkerImage ? ' image-note-markers' : ''}${book.chapterNumberBackgroundImage ? ' has-number-background' : ''}`} style={{ ...selectedStyle, ...chapterBackgroundStyle(book), ...chapterNumberBackgroundStyle(book), '--note-marker-image': book.noteMarkerImage ? `url("${book.noteMarkerImage}")` : 'none' } as CSSProperties}>{showEditorImages && chapterImagesAt(book, selectedChapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}<HeadingTitle title={selectedChapter.title || '未命名章节'} kind="chapter" layout={selectedChapter.titleLayout}/>{showEditorImages && chapterImagesAt(book, selectedChapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}<EditorContent editor={editor} className="chapter-editor" />{orderedNotes(selectedChapter).length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{orderedNotes(selectedChapter).map((note, index) => <div className="note-edit-row" key={note.id}>{book.noteDetailImage ? <img className="note-detail-image" src={book.noteDetailImage} alt={`备注 ${index + 1}`}/> : <span>[{index + 1}]</span>}<textarea aria-label={`备注 ${index + 1}`} placeholder="输入备注内容" value={note.text} onChange={event => updateNote(note.id, event.target.value)}/><button title="删除备注" aria-label={`删除备注 ${index + 1}`} onClick={() => deleteNote(note.id)}><Trash2 size={16}/></button></div>)}</section>}</div></div>
+          <div className="editor-scroll" ref={editorScrollRef}><div className={`paper edit-paper${book.noteMarkerImage ? ' image-note-markers' : ''}${book.chapterNumberBackgroundImage ? ' has-number-background' : ''}${book.chapterNameBackgroundImage ? ' has-name-background' : ''}`} style={{ ...selectedStyle, ...chapterBackgroundStyle(book), ...chapterNumberBackgroundStyle(book), ...chapterNameBackgroundStyle(book), '--note-marker-image': book.noteMarkerImage ? `url("${book.noteMarkerImage}")` : 'none' } as CSSProperties}>{showEditorImages && chapterImagesAt(book, selectedChapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}<HeadingTitle title={selectedChapter.title || '未命名章节'} kind="chapter" layout={selectedChapter.titleLayout}/>{showEditorImages && chapterImagesAt(book, selectedChapter, 'below').map(image => <img className="boundary-image" src={image.image} alt="章节标题下方图片" key={image.id}/>)}<EditorContent editor={editor} className="chapter-editor" />{orderedNotes(selectedChapter).length > 0 && <section className="chapter-notes" aria-label="本章备注"><h2>备注</h2>{orderedNotes(selectedChapter).map((note, index) => <div className="note-edit-row" key={note.id}>{book.noteDetailImage ? <img className="note-detail-image" src={book.noteDetailImage} alt={`备注 ${index + 1}`}/> : <span>[{index + 1}]</span>}<textarea aria-label={`备注 ${index + 1}`} placeholder="输入备注内容" value={note.text} onChange={event => updateNote(note.id, event.target.value)}/><button title="删除备注" aria-label={`删除备注 ${index + 1}`} onClick={() => deleteNote(note.id)}><Trash2 size={16}/></button></div>)}</section>}</div></div>
           {chapterLoading && <div className="chapter-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>正在加载章节正文…</div>}
           </div>
         </> : <div className="preview-scroll" ref={previewScrollRef} onClick={handlePreviewClick}>
@@ -960,6 +967,11 @@ export default function App() {
           {book.chapterNumberBackgroundImage && <label>图片尺寸<select value={book.style.chapterNumberBackgroundSize ?? '50% 70%'} onChange={event => setStyle('chapterNumberBackgroundSize', event.target.value)}><option value="50% 70%">样书比例</option><option value="contain">完整显示</option><option value="cover">铺满</option><option value="100% 100%">拉伸铺满</option></select></label>}
         </section>
         <HeadingStyleControls label="章节名称" styleKey="chapterNameStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
+        <section className="setting-section"><h3>章节名称背景图</h3><p className="setting-help">图片铺在章节名称文字后面，与序号背景分别设置。</p>
+          {book.chapterNameBackgroundImage && <img className="chapter-background-preview" src={book.chapterNameBackgroundImage} alt="章节名称背景预览"/>}
+          <div className="note-image-setting"><div><button className="button" type="button" onClick={() => void chooseChapterNameBackground()}>{book.chapterNameBackgroundImage ? '更换背景图' : '选择背景图'}</button>{book.chapterNameBackgroundImage && <button className="button" type="button" onClick={() => updateBook(previous => ({ ...previous, chapterNameBackgroundImage: null }))}>移除背景</button>}</div></div>
+          {book.chapterNameBackgroundImage && <label>图片尺寸<select value={book.style.chapterNameBackgroundSize ?? 'contain'} onChange={event => setStyle('chapterNameBackgroundSize', event.target.value)}><option value="contain">完整显示</option><option value="cover">铺满</option><option value="50% 70%">半幅装饰</option><option value="100% 100%">拉伸铺满</option></select></label>}
+        </section>
         <HeadingStyleControls label="卷序号" styleKey="volumeNumberStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
         <HeadingStyleControls label="卷名称" styleKey="volumeNameStyle" style={book.style} fonts={availableFonts} onChange={setHeadingStyle}/>
       </> : settingsDialog === 'notes' ? <>

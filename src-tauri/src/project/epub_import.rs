@@ -38,7 +38,7 @@ fn read_css_background(
             let size = if default_size == "50% 70%" {
                 match size.as_str() { "50% 70%" | "contain" | "cover" | "100% 100%" => size, _ => default_size.into() }
             } else {
-                match size.as_str() { "contain" | "100% 100%" | "100% auto" => size, _ => default_size.into() }
+                match size.as_str() { "contain" | "cover" | "100% 100%" | "100% auto" => size, _ => default_size.into() }
             };
             return (Some(format!("data:{mime};base64,{}", STANDARD.encode(bytes))), size);
         }
@@ -132,6 +132,8 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
         read_css_background(&mut archive, &opf_path, &manifest, r"(?is)\bbody(?:\.chapter-page)?\s*\{([^}]*)\}", "cover");
     let (chapter_number_background_image, chapter_number_background_size) =
         read_css_background(&mut archive, &opf_path, &manifest, r"(?is)(?:h2\.head_num|\.chapter-heading\s+\.heading-number)\s*\{([^}]*)\}", "50% 70%");
+    let (chapter_name_background_image, chapter_name_background_size) =
+        read_css_background(&mut archive, &opf_path, &manifest, r"(?is)(?:h2\.head_content|\.chapter-heading\s+\.heading-name|h1\.chapter-heading)\s*\{([^}]*)\}", "contain");
     let spine = opf_doc
         .descendants()
         .find(|n| n.has_tag_name("spine"))
@@ -386,11 +388,12 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
         title,
         author,
         language,
-        style: BookStyle { chapter_background_size, chapter_number_background_size, ..BookStyle::default() },
+        style: BookStyle { chapter_background_size, chapter_number_background_size, chapter_name_background_size, ..BookStyle::default() },
         cover_image,
         chapter_images,
         chapter_background_image,
         chapter_number_background_image,
+        chapter_name_background_image,
         note_marker_image: None,
         note_detail_image: None,
         opening_image: None,
