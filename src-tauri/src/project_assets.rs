@@ -93,6 +93,9 @@ fn collect_refs(book: &Project, assets: &AssetStore) -> Result<(Vec<ProjectAsset
     if let Some(image) = book.chapter_background_image.as_deref() {
         append_ref(assets, "image", image, "章节背景".into(), &mut image_keys, &mut images)?;
     }
+    if let Some(image) = book.chapter_number_background_image.as_deref() {
+        append_ref(assets, "image", image, "章节序号背景".into(), &mut image_keys, &mut images)?;
+    }
     if let Some(image) = book.note_marker_image.as_deref() {
         append_ref(assets, "image", image, "正文备注标记".into(), &mut image_keys, &mut images)?;
     }
@@ -157,6 +160,9 @@ fn find_entry(book: &Project, key: &str) -> Option<Entry> {
     }
     if let Some(image) = book.chapter_background_image.as_deref() {
         if let Some(entry) = matches(image, "章节背景".into()) { return Some(entry); }
+    }
+    if let Some(image) = book.chapter_number_background_image.as_deref() {
+        if let Some(entry) = matches(image, "章节序号背景".into()) { return Some(entry); }
     }
     if let Some(image) = book.note_marker_image.as_deref() {
         if let Some(entry) = matches(image, "正文备注标记".into()) { return Some(entry); }
@@ -347,6 +353,7 @@ mod tests {
                 scope: ChapterImageScope::All,
             }],
             chapter_background_image: None,
+            chapter_number_background_image: None,
             note_marker_image: None,
             note_detail_image: None,
             opening_image: None,

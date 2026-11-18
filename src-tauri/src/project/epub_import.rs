@@ -10,23 +10,23 @@ use super::{
     EditableChapter, Project, TitleLayout, Volume, VolumeStyle, escape_xml,
 };
 
-/// Reads a shared chapter-page background from an EPUB stylesheet. Only body
-/// rules are considered; decorative images inside notes and headings remain
-/// ordinary content assets.
-fn read_chapter_background(
+/// Reads a shared background image from a selected CSS rule in an EPUB.
+fn read_css_background(
     archive: &mut ZipArchive<fs::File>,
     opf_path: &str,
     manifest: &HashMap<String, (String, String)>,
+    rule_pattern: &str,
+    default_size: &str,
 ) -> (Option<String>, String) {
     let comments = Regex::new(r"(?s)/\*.*?\*/").unwrap();
-    let body_rule = Regex::new(r"(?is)\bbody(?:\.chapter-page)?\s*\{([^}]*)\}").unwrap();
+    let selected_rule = Regex::new(rule_pattern).unwrap();
     let image_url = Regex::new(r#"(?i)\bbackground(?:-image)?\s*:[^;]*?url\(\s*['"]?([^)'"\s]+)"#).unwrap();
     let background_size = Regex::new(r"(?i)\bbackground-size\s*:\s*([^;}]*)").unwrap();
     for (href, _) in manifest.values().filter(|(href, _)| href.to_ascii_lowercase().ends_with(".css")) {
         let Ok(css_path) = resolve_zip_path(opf_path, href) else { continue };
         let Ok(css) = zip_text(archive, &css_path) else { continue };
         let css = comments.replace_all(&css, "");
-        for rule in body_rule.captures_iter(&css) {
+        for rule in selected_rule.captures_iter(&css) {
             let declaration = &rule[1];
             let Some(url) = image_url.captures(declaration).map(|capture| capture[1].to_string()) else { continue };
             let Ok(image_path) = resolve_zip_path(&css_path, &url) else { continue };
@@ -35,11 +35,15 @@ fn read_chapter_background(
             let mut bytes = Vec::new();
             if image.read_to_end(&mut bytes).is_err() { continue }
             let size = background_size.captures(declaration).map(|capture| capture[1].trim().to_ascii_lowercase()).unwrap_or_default();
-            let size = match size.as_str() { "contain" | "100% 100%" | "100% auto" => size, _ => "cover".into() };
+            let size = if default_size == "50% 70%" {
+                match size.as_str() { "50% 70%" | "contain" | "cover" | "100% 100%" => size, _ => default_size.into() }
+            } else {
+                match size.as_str() { "contain" | "100% 100%" | "100% auto" => size, _ => default_size.into() }
+            };
             return (Some(format!("data:{mime};base64,{}", STANDARD.encode(bytes))), size);
         }
     }
-    (None, "cover".into())
+    (None, default_size.into())
 }
 
 /// 解析 EPUB 内的 XML。出版物常用 `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN">`
@@ -125,7 +129,9 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
             Some(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
         });
     let (chapter_background_image, chapter_background_size) =
-        read_chapter_background(&mut archive, &opf_path, &manifest);
+        read_css_background(&mut archive, &opf_path, &manifest, r"(?is)\bbody(?:\.chapter-page)?\s*\{([^}]*)\}", "cover");
+    let (chapter_number_background_image, chapter_number_background_size) =
+        read_css_background(&mut archive, &opf_path, &manifest, r"(?is)(?:h2\.head_num|\.chapter-heading\s+\.heading-number)\s*\{([^}]*)\}", "50% 70%");
     let spine = opf_doc
         .descendants()
         .find(|n| n.has_tag_name("spine"))
@@ -234,6 +240,7 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
         let mut html = String::new();
         let mut anchors = Vec::new();
         let mut started = false;
+        let mut pending_number_heading = false;
         // 记下当前这一段是否已有文字。只有插图（没有文字）的开头内容，
         // 例如标题上方的整页插图，不该单独成为一章，而是并进它后面的章节。
         let mut has_text = false;
@@ -243,6 +250,13 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
         let mut boundary_image: Option<(String, std::ops::Range<usize>, bool)> = None;
         for block in blocks {
             if block.has_tag_name(split_tag) {
+                let classes = block.attribute("class").unwrap_or("");
+                if pending_number_heading && !has_text && classes.split_whitespace().any(|class| class == "head_content") {
+                    title.push(' ');
+                    title.push_str(&imported_heading_text(block));
+                    pending_number_heading = false;
+                    continue;
+                }
                 if started && has_text {
                     drafts.push(ImportedChapter {
                         title: std::mem::take(&mut title),
@@ -257,6 +271,7 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
                     });
                 }
                 title = imported_heading_text(block);
+                pending_number_heading = classes.split_whitespace().any(|class| class == "head_num");
                 title_layout = if block.attribute("class").is_some_and(|classes| {
                     classes
                         .split_whitespace()
@@ -277,6 +292,7 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
                 has_text = false;
                 before_title = false;
             } else {
+                if block_has_text(block) { pending_number_heading = false; }
                 for node in block.descendants() {
                     if node.is_element()
                         && supports_id(node.tag_name().name())
@@ -370,10 +386,11 @@ pub(super) fn import_epub(path: &Path) -> Result<Project, String> {
         title,
         author,
         language,
-        style: BookStyle { chapter_background_size, ..BookStyle::default() },
+        style: BookStyle { chapter_background_size, chapter_number_background_size, ..BookStyle::default() },
         cover_image,
         chapter_images,
         chapter_background_image,
+        chapter_number_background_image,
         note_marker_image: None,
         note_detail_image: None,
         opening_image: None,

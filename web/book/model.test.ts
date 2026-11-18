@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chapterBackgroundStyle, chapterGroups, chapterImagesAt, chapterImagesFor, chapterImageApplies, chapterStyle, createChapterImage, createEmptyProject, noteBoxStyle, previewStyles, reindexChapterLinks, resolveStyle } from './model'
+import { chapterBackgroundStyle, chapterNumberBackgroundStyle, chapterGroups, chapterImagesAt, chapterImagesFor, chapterImageApplies, chapterStyle, createChapterImage, createEmptyProject, noteBoxStyle, previewStyles, reindexChapterLinks, resolveStyle } from './model'
 import { orderedNotes, renderNoteMarkers } from '../chapters/notes'
 
 describe('project model', () => {
@@ -74,6 +74,13 @@ describe('chapter background', () => {
     book.chapterBackgroundImage = 'data:image/png;base64,AAAA'
     book.style.chapterBackgroundSize = '100% 100%'
     expect(chapterBackgroundStyle(book)).toEqual({ backgroundImage: 'url("data:image/png;base64,AAAA")', backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat', backgroundPosition: 'center top' })
+  })
+
+  it('provides a separate background for the chapter number line', () => {
+    const book = createEmptyProject()
+    expect(chapterNumberBackgroundStyle(book)).toEqual({})
+    book.chapterNumberBackgroundImage = 'data:image/png;base64,AAAA'
+    expect(chapterNumberBackgroundStyle(book)).toEqual({ '--chapter-number-bg-image': 'url("data:image/png;base64,AAAA")', '--chapter-number-bg-size': '50% 70%' })
   })
 })
 

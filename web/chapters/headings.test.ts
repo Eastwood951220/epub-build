@@ -12,6 +12,7 @@ describe('two-line headings', () => {
     expect(splitHeading('前言', 'chapter')).toEqual({ number: '', name: '前言' })
     expect(splitHeading('第壹卷：少年', 'volume')).toEqual({ number: '第壹卷', name: '少年' })
     expect(splitHeading('第贰拾叁章 归途', 'chapter')).toEqual({ number: '第贰拾叁章', name: '归途' })
+    expect(splitHeading('第 0002 章 天下事与眼前事', 'chapter')).toEqual({ number: '第 0002 章', name: '天下事与眼前事' })
     expect(splitHeading('卷丨叁丨', 'volume')).toEqual({ number: '卷丨叁丨', name: '' })
     expect(splitHeading('卷丨玖丨 天下', 'volume')).toEqual({ number: '卷丨玖丨', name: '天下' })
   })

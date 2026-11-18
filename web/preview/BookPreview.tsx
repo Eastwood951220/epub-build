@@ -1,6 +1,6 @@
 import { Fragment, memo, useEffect, useState, type CSSProperties, type RefObject } from 'react'
 import DOMPurify from 'dompurify'
-import { chapterBackgroundStyle, chapterImagesAt, chapterStyle, previewStyles, resolveStyle, type ChapterGroup, type Project } from '../book/model'
+import { chapterBackgroundStyle, chapterNumberBackgroundStyle, chapterImagesAt, chapterStyle, previewStyles, resolveStyle, type ChapterGroup, type Project } from '../book/model'
 import { orderedNotes, renderNoteMarkers } from '../chapters/notes'
 import HeadingTitle from '../chapters/HeadingTitle'
 
@@ -45,7 +45,7 @@ function BookPreview({ book, groups, chapterIndex, scrollRef, forcedChapterId }:
           const last = group.chapters[group.chapters.length - 1].id === chapter.id
           const loaded = visible.has(chapter.id) || forcedChapterId === chapter.id
           const notes = loaded ? orderedNotes(chapter) : []
-          return <article className="paper preview-paper" data-preview-chapter-id={chapter.id} id={`preview-chapter-${index + 1}`} style={{ ...previewStyles(chapterStyle(book, chapter)), ...chapterBackgroundStyle(book) } as CSSProperties} key={chapter.id}>
+          return <article className={`paper preview-paper${book.chapterNumberBackgroundImage ? ' has-number-background' : ''}`} data-preview-chapter-id={chapter.id} id={`preview-chapter-${index + 1}`} style={{ ...previewStyles(chapterStyle(book, chapter)), ...chapterBackgroundStyle(book), ...chapterNumberBackgroundStyle(book) } as CSSProperties} key={chapter.id}>
             {loaded && chapterImagesAt(book, chapter, 'above').map(image => <img className="boundary-image" src={image.image} alt="章节标题上方图片" key={image.id}/>)}
             <HeadingTitle title={chapter.title} kind="chapter" id={chapter.titleId} layout={chapter.titleLayout}/>
             {loaded && <>

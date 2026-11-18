@@ -941,7 +941,9 @@ fn chapter_background_survives_project_and_epub_round_trip() {
     fs::write(&source, "第一章\n正文").unwrap();
     let mut project = import_book(&source).unwrap();
     project.chapter_background_image = Some("data:image/png;base64,YmdpbWFnZQ==".into());
+    project.chapter_number_background_image = Some("data:image/png;base64,c2Nyb2xs".into());
     project.style.chapter_background_size = "100% 100%".into();
+    project.style.chapter_number_background_size = "50% 70%".into();
     let saved = dir.path().join("book.json");
     save_project(&project, &saved).unwrap();
     let project = load_project(&saved).unwrap();
@@ -951,6 +953,7 @@ fn chapter_background_survives_project_and_epub_round_trip() {
     let mut css = String::new();
     archive.by_name("OEBPS/styles/book.css").unwrap().read_to_string(&mut css).unwrap();
     assert!(css.contains("body.chapter-page{background-image:url('../images/image-1.png');background-size:100% 100%;"));
+    assert!(css.contains(".chapter-heading .heading-number{background-image:url('../images/image-2.png');background-size:50% 70%;"));
     let mut chapter = String::new();
     archive.by_name("OEBPS/text/chapter-1.xhtml").unwrap().read_to_string(&mut chapter).unwrap();
     assert!(chapter.contains("<body class=\"chapter-page\">"));
@@ -958,6 +961,7 @@ fn chapter_background_survives_project_and_epub_round_trip() {
     let imported = import_book(&epub).unwrap();
     assert_eq!(imported.chapter_background_image, project.chapter_background_image);
     assert_eq!(imported.style.chapter_background_size, "100% 100%");
+    assert_eq!(imported.chapter_number_background_image, project.chapter_number_background_image);
 }
 
 #[test]
@@ -971,16 +975,21 @@ fn epub_import_recognizes_body_background_shorthand() {
     zip.start_file("OEBPS/content.opf", options).unwrap();
     std::io::Write::write_all(&mut zip, br#"<package><metadata><title>Illustrated</title></metadata><manifest><item id="c" href="book.xhtml"/><item id="css" href="styles/book.css"/></manifest><spine><itemref idref="c"/></spine></package>"#).unwrap();
     zip.start_file("OEBPS/book.xhtml", options).unwrap();
-    std::io::Write::write_all(&mut zip, b"<html><body><h1>Chapter</h1><p>Text</p></body></html>").unwrap();
+    std::io::Write::write_all(&mut zip, "<html><body><h2 class=\"head_num\">第 0002 章</h2><h2 class=\"head_content\">天下事与眼前事</h2><p>Text</p></body></html>".as_bytes()).unwrap();
     zip.start_file("OEBPS/styles/book.css", options).unwrap();
-    std::io::Write::write_all(&mut zip, b"body { background: url(../images/bg.png); background-size: 100% 100%; } body.introduction-page { background: url(other.png) }").unwrap();
+    std::io::Write::write_all(&mut zip, b"body { background: url(../images/bg.png); background-size: 100% 100%; } h2.head_num { background-image: url(../images/scroll.png); background-size: 50% 70%; } body.introduction-page { background: url(other.png) }").unwrap();
     zip.start_file("OEBPS/images/bg.png", options).unwrap();
     std::io::Write::write_all(&mut zip, b"background").unwrap();
+    zip.start_file("OEBPS/images/scroll.png", options).unwrap();
+    std::io::Write::write_all(&mut zip, b"scroll").unwrap();
     zip.finish().unwrap();
 
     let project = import_book(&path).unwrap();
     assert_eq!(project.chapter_background_image.as_deref(), Some("data:image/png;base64,YmFja2dyb3VuZA=="));
     assert_eq!(project.style.chapter_background_size, "100% 100%");
+    assert_eq!(project.chapters[0].title, "第 0002 章 天下事与眼前事");
+    assert_eq!(project.chapter_number_background_image.as_deref(), Some("data:image/png;base64,c2Nyb2xs"));
+    assert_eq!(project.style.chapter_number_background_size, "50% 70%");
 }
 
 #[test]

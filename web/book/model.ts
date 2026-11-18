@@ -8,6 +8,7 @@ export interface BookStyle {
   bodyParagraphSpacing: number
   chapterBodySpacing: number
   chapterBackgroundSize?: string
+  chapterNumberBackgroundSize?: string
   bodyAlign: string
   bodyFirstLineIndent: boolean
   noteFontFamily?: string
@@ -123,6 +124,7 @@ export interface Project {
   chapterImages: ChapterImage[]
   /** Shared decorative background for chapter pages. */
   chapterBackgroundImage?: string | null
+  chapterNumberBackgroundImage?: string | null
   /** Shared inline note and note-detail icons, embedded for portable projects. */
   noteMarkerImage?: string | null
   noteDetailImage?: string | null
@@ -159,11 +161,13 @@ export function createEmptyProject(): Project {
       titleFontFamily: 'serif', titleFontSize: 30, titleAlign: 'center',
       bodyFontFamily: 'serif', bodyFontSize: 18, bodyLineHeight: 1.8, bodyParagraphSpacing: 0.9, chapterBodySpacing: 46, bodyAlign: 'justify', bodyFirstLineIndent: false,
       chapterBackgroundSize: 'cover',
+      chapterNumberBackgroundSize: '50% 70%',
       noteFontFamily: 'serif', noteFontSize: 14, noteColor: '#526963', noteMarkerSize: 12, noteMarkerColor: '#0b8578', noteDetailImageSize: 12,
     },
     coverImage: null,
     chapterImages: [],
     chapterBackgroundImage: null,
+    chapterNumberBackgroundImage: null,
     noteMarkerImage: null,
     noteDetailImage: null,
     fontAssets: [],
@@ -209,6 +213,15 @@ export function chapterBackgroundStyle(book: Pick<Project, 'chapterBackgroundIma
   }
 }
 
+export function chapterNumberBackgroundStyle(book: Pick<Project, 'chapterNumberBackgroundImage' | 'style'>): Record<string, string> {
+  if (!book.chapterNumberBackgroundImage) return {}
+  const size = book.style.chapterNumberBackgroundSize
+  return {
+    '--chapter-number-bg-image': `url("${book.chapterNumberBackgroundImage}")`,
+    '--chapter-number-bg-size': ['50% 70%', 'contain', 'cover', '100% 100%'].includes(size ?? '') ? size! : '50% 70%',
+  }
+}
+
 export function createVolume(index: number): Volume {
   return { id: crypto.randomUUID(), title: `第${index}卷`, style: {}, openingImage: null, closingImage: null }
 }
@@ -235,6 +248,7 @@ export function resolveStyle(base: BookStyle, overrides: VolumeStyle = {}): Book
     bodyParagraphSpacing: base.bodyParagraphSpacing ?? 0.9,
     chapterBodySpacing: base.chapterBodySpacing ?? 46,
     chapterBackgroundSize: base.chapterBackgroundSize ?? 'cover',
+    chapterNumberBackgroundSize: base.chapterNumberBackgroundSize ?? '50% 70%',
     bodyAlign: overrides.bodyAlign ?? base.bodyAlign,
     bodyFirstLineIndent: base.bodyFirstLineIndent ?? false,
     chapterNumberStyle: resolveLine(base.chapterNumberStyle),

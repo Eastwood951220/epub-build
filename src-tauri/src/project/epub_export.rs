@@ -286,7 +286,7 @@ fn split_heading(title: &str, volume: bool) -> (String, String) {
         VOLUME.get_or_init(|| Regex::new(r"^(第[0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟萬]+[卷部篇]|卷[丨|:：,，、.．·\-—\s]*[0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟萬]+[丨|]?)(.*)$").unwrap())
     } else {
         CHAPTER.get_or_init(|| {
-            Regex::new(r"^(第[0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟萬]+[章节回话])(.*)$").unwrap()
+            Regex::new(r"^(第[\s　]*[0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟萬]+[\s　]*[章节回话])(.*)$").unwrap()
         })
     };
     let text = title.trim();
@@ -371,7 +371,7 @@ fn note_box_css(style: &NoteBoxStyle, background: Option<&str>) -> String {
     )
 }
 
-fn style_css(style: &BookStyle, fonts: &[&EmbeddedFont], note_box_background: Option<&str>, chapter_background: Option<&str>) -> String {
+fn style_css(style: &BookStyle, fonts: &[&EmbeddedFont], note_box_background: Option<&str>, chapter_background: Option<&str>, chapter_number_background: Option<&str>) -> String {
     let mut faces = String::new();
     for (index, font) in fonts.iter().enumerate() {
         if let Some(ext) = font_format(&font.mime)
@@ -425,9 +425,19 @@ fn style_css(style: &BookStyle, fonts: &[&EmbeddedFont], note_box_background: Op
         };
         css.push_str(&format!("body.chapter-page{{background-image:url('../images/{name}');background-size:{size};background-repeat:no-repeat;background-position:center top}}"));
     }
+    if let Some(name) = chapter_number_background {
+        let size = match style.chapter_number_background_size.as_str() {
+            "contain" | "cover" | "100% 100%" => style.chapter_number_background_size.as_str(),
+            _ => "50% 70%",
+        };
+        css.push_str(&format!(".chapter-heading .heading-number{{background-image:url('../images/{name}');background-size:{size};background-position:center;background-repeat:no-repeat;padding:1.3em 0 1.7em}}"));
+    }
     css.push_str(".chapter-heading .heading-number,.chapter-heading .heading-name,.volume-heading .heading-number,.volume-heading .heading-name{display:block}.chapter-heading .heading-number+.heading-name,.volume-heading .heading-number+.heading-name{margin-top:.35em}");
     css.push_str(".chapter-heading.title-inline .heading-number,.chapter-heading.title-inline .heading-name,.volume-heading.title-inline .heading-number,.volume-heading.title-inline .heading-name{display:inline}.chapter-heading.title-inline .heading-number+.heading-name,.volume-heading.title-inline .heading-number+.heading-name{margin-top:0;margin-left:.35em}");
     css.push_str(&heading_styles(style, fonts, ""));
+    if chapter_number_background.is_some() {
+        css.push_str(".chapter-heading.title-inline .heading-number,.chapter-heading.title-inline .heading-name{display:block}.chapter-heading.title-inline .heading-name{margin-left:0}");
+    }
     css
 }
 
@@ -493,6 +503,7 @@ fn resolve_style(base: &BookStyle, overrides: &VolumeStyle) -> BookStyle {
         body_paragraph_spacing: base.body_paragraph_spacing,
         chapter_body_spacing: base.chapter_body_spacing,
         chapter_background_size: base.chapter_background_size.clone(),
+        chapter_number_background_size: base.chapter_number_background_size.clone(),
         body_align: overrides
             .body_align
             .clone()
@@ -594,7 +605,8 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
         .map(|image| add_image(image, &mut assets))
         .transpose()?;
     let chapter_background = book.chapter_background_image.as_deref().map(|image| add_image(image, &mut assets)).transpose()?;
-    let mut css = style_css(&book.style, &fonts, note_box_background.as_deref(), chapter_background.as_deref());
+    let chapter_number_background = book.chapter_number_background_image.as_deref().map(|image| add_image(image, &mut assets)).transpose()?;
+    let mut css = style_css(&book.style, &fonts, note_box_background.as_deref(), chapter_background.as_deref(), chapter_number_background.as_deref());
     css.push_str(&volume_css(book, &fonts));
     write_zip(
         &mut zip,

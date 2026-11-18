@@ -31,6 +31,8 @@ pub struct Project {
     #[serde(default)]
     pub chapter_background_image: Option<String>,
     #[serde(default)]
+    pub chapter_number_background_image: Option<String>,
+    #[serde(default)]
     pub note_marker_image: Option<String>,
     #[serde(default)]
     pub note_detail_image: Option<String>,
@@ -98,6 +100,7 @@ pub struct BookStyle {
     pub body_paragraph_spacing: f32,
     pub chapter_body_spacing: u16,
     pub chapter_background_size: String,
+    pub chapter_number_background_size: String,
     pub body_align: String,
     pub body_first_line_indent: bool,
     pub note_font_family: String,
@@ -172,6 +175,7 @@ impl Default for BookStyle {
             body_paragraph_spacing: 0.9,
             chapter_body_spacing: 46,
             chapter_background_size: "cover".into(),
+            chapter_number_background_size: "50% 70%".into(),
             body_align: "justify".into(),
             body_first_line_indent: false,
             note_font_family: "serif".into(),
@@ -372,6 +376,7 @@ pub fn import_txt_with_patterns(
         cover_image: None,
         chapter_images: Vec::new(),
         chapter_background_image: None,
+        chapter_number_background_image: None,
         note_marker_image: None,
         note_detail_image: None,
         opening_image: None,
