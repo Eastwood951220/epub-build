@@ -75,6 +75,21 @@ describe('volumes', () => {
     expect(chapterStyle(book, book.chapters[1]).bodyFontSize).toBe(book.style.bodyFontSize)
   })
 
+  it('keeps explicit chapter styles when a saved volume has null title overrides', () => {
+    const book = createEmptyProject()
+    book.style.chapterNameStyle = { fontFamily: 'EPUBStudioLibraryFont7', fontSize: 32, align: 'right' }
+    book.volumes = [{ ...volume('v1', '第一卷'), style: {
+      titleFontFamily: null, titleFontSize: null, titleAlign: null,
+      bodyFontFamily: null, bodyFontSize: null, bodyLineHeight: null, bodyAlign: null,
+    } }]
+    book.chapters = [{ id: 'preface', title: '前言', html: '<p>前言</p>' }, { id: 'chapter', title: '第一章 开始', volumeId: 'v1', html: '<p>正文</p>' }]
+    const preface = previewStyles(chapterStyle(book, book.chapters[0]))
+    const chapter = previewStyles(chapterStyle(book, book.chapters[1]))
+    expect(chapter['--chapter-name-font']).toBe(preface['--chapter-name-font'])
+    expect(chapter['--chapter-name-size']).toBe('32px')
+    expect(chapter['--chapter-name-align']).toBe('right')
+  })
+
   it('groups consecutive chapters by volume and keeps empty volumes visible', () => {
     const groups = chapterGroups(
       [chapter('a', 'v1'), chapter('b', 'v1'), chapter('c'), chapter('d', 'v2')],

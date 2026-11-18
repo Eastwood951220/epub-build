@@ -47,13 +47,13 @@ export interface ChapterImage {
 }
 
 export interface VolumeStyle {
-  titleFontFamily?: string
-  titleFontSize?: number
-  titleAlign?: string
-  bodyFontFamily?: string
-  bodyFontSize?: number
-  bodyLineHeight?: number
-  bodyAlign?: string
+  titleFontFamily?: string | null
+  titleFontSize?: number | null
+  titleAlign?: string | null
+  bodyFontFamily?: string | null
+  bodyFontSize?: number | null
+  bodyLineHeight?: number | null
+  bodyAlign?: string | null
 }
 
 export interface Volume {
@@ -165,9 +165,9 @@ export function volumeOverrideCount(style: VolumeStyle): number {
 export function resolveStyle(base: BookStyle, overrides: VolumeStyle = {}): BookStyle {
   const resolveLine = (line?: HeadingLineStyle): HeadingLineStyle => ({
     ...line,
-    ...(overrides.titleFontFamily !== undefined ? { fontFamily: overrides.titleFontFamily } : {}),
-    ...(overrides.titleFontSize !== undefined ? { fontSize: overrides.titleFontSize } : {}),
-    ...(overrides.titleAlign !== undefined ? { align: overrides.titleAlign } : {}),
+    ...(overrides.titleFontFamily != null ? { fontFamily: overrides.titleFontFamily } : {}),
+    ...(overrides.titleFontSize != null ? { fontSize: overrides.titleFontSize } : {}),
+    ...(overrides.titleAlign != null ? { align: overrides.titleAlign } : {}),
   })
   return {
     titleFontFamily: overrides.titleFontFamily ?? base.titleFontFamily,
