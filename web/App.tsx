@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
@@ -48,6 +48,16 @@ import { startWindowDrag } from './platform/windowDrag'
 import { scanImageBatch } from './editor/chapterImageScan'
 import { createSaveQueue } from './editor/saveQueue'
 import type { HeadingLineStyle } from './book/model'
+
+const CssCodeEditor = lazy(() => import('./settings/CssCodeEditor'))
+
+function SourceCssFile({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false)
+  return <details className="source-css-file" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>{label}</summary>
+    {open && <Suspense fallback={<p className="setting-help">正在加载代码编辑器…</p>}><CssCodeEditor label={label} value={value} onChange={onChange}/></Suspense>}
+  </details>
+}
 
 type View = 'edit' | 'preview'
 interface ReviewState { mode: 'import' | 'manage'; book: Project; sourcePath?: string }
@@ -1015,12 +1025,12 @@ export default function App() {
           onChange={entries => updateBook(previous => ({ ...previous, chapterImages: entries }))}
         />
       </> : settingsDialog === 'css' ? <>
-        <section className="setting-section"><h3>原书 CSS</h3><p className="setting-help">导入的样式表和引用的字体、图片会保存在工程中，预览与导出继续使用。原书样式只读，下面可以追加覆盖规则。</p>
-          {(book.sourceStylesheets ?? []).map((stylesheet, index) => <details className="source-css-file" key={`${stylesheet.path}-${index}`}><summary>{sourceStylesheetLabels[index]}</summary><textarea aria-label={`原书 CSS ${index + 1}`} readOnly value={stylesheet.css}/></details>)}
+        <section className="setting-section"><h3>原书 CSS</h3><p className="setting-help">可直接修改导入的样式表；修改会用于预览和导出。引用的字体、图片仍保存在工程中。</p>
+          {(book.sourceStylesheets ?? []).map((stylesheet, index) => <SourceCssFile key={`${stylesheet.path}-${index}`} label={sourceStylesheetLabels[index]} value={stylesheet.css} onChange={css => updateBook(previous => ({ ...previous, sourceStylesheets: (previous.sourceStylesheets ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, css } : item) }))}/>)}
           {!book.sourceStylesheets?.length && <p className="setting-help">当前工程没有导入的 CSS 文件。</p>}
         </section>
         <section className="setting-section"><h3>追加 CSS</h3><p className="setting-help">规则仅作用于章节正文，保留原书 CSS。可覆盖对话颜色等样式，例如 <code>.talk {'{'} color: #863020; {'}'}</code>。</p>
-          <textarea className="source-css-editor" aria-label="追加 CSS" spellCheck={false} value={book.customCss ?? ''} onChange={event => updateBook(previous => ({ ...previous, customCss: event.target.value }))} placeholder=".talk { color: #863020; }"/>
+          <Suspense fallback={<p className="setting-help">正在加载代码编辑器…</p>}><CssCodeEditor label="追加 CSS" value={book.customCss ?? ''} onChange={css => updateBook(previous => ({ ...previous, customCss: css }))}/></Suspense>
         </section>
       </> : <>
         <section className="setting-section"><h3>章节背景</h3><p className="setting-help">背景用于所有章节正文页，编辑、预览与 EPUB 导出保持一致；卷标题页使用卷设置中的图片。</p>
