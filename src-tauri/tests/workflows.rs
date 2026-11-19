@@ -77,6 +77,8 @@ fn exports_the_configured_note_box_style_and_its_background_image() {
         background_size: "contain".into(),
         title_background: "#222222".into(),
         title_color: "#eeeeee".into(),
+        show_title: true,
+        default_title: "小贴士".into(),
         text_color: "#333333".into(),
     };
     let epub = dir.path().join("book.epub");
@@ -931,7 +933,7 @@ fn imports_bordered_tip_box_as_editable_note_box() {
 
     let project = import_book(&path).unwrap();
     assert_eq!(project.chapters.len(), 1);
-    assert!(project.chapters[0].html.contains("<aside class=\"note-box\"><p class=\"note-box-title\">小贴士</p><p>边框里的备注</p></aside>"));
+    assert!(project.chapters[0].html.contains("<aside class=\"note-box\"><p class=\"note-box-title\">小贴士</p><p class=\"jieti\">边框里的备注</p></aside>"));
 }
 
 #[test]
