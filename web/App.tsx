@@ -480,6 +480,17 @@ export default function App() {
     })
   }
 
+  async function openProject() {
+    if (!canReplace()) return
+    const path = await open({ multiple: false, filters: [{ name: 'EPUB Studio 项目', extensions: ['json'] }] })
+    if (typeof path !== 'string') return
+    await withBusy(async () => {
+      const next = await backend.loadProject(path)
+      const created = await backend.createWorkspace(next)
+      replaceBook(next, created.id, '项目文件已导入为新工程')
+    })
+  }
+
   async function saveProject() {
     if (workspaceId === null) return
     await withBusy(async () => {
@@ -856,6 +867,7 @@ export default function App() {
       onOpen={openWorkspace}
       onDelete={deleteWorkspace}
       onImportBook={importFile}
+      onImportProject={openProject}
     />
     {volumeBatchOpen && <VolumeBatchDialog
       volumes={book.volumes}

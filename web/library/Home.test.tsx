@@ -12,7 +12,7 @@ const existing: WorkspaceSummary = {
 }
 
 describe('bookshelf project creation', () => {
-  it.each([{ workspaces: [] }, { workspaces: [existing] }])('offers TXT/EPUB import as the only creation path', ({ workspaces }) => {
+  it.each([{ workspaces: [] }, { workspaces: [existing] }])('keeps book and JSON imports without blank project creation', ({ workspaces }) => {
     const html = renderToStaticMarkup(<Home
       workspaces={workspaces}
       busy={false}
@@ -21,10 +21,11 @@ describe('bookshelf project creation', () => {
       onOpen={async () => {}}
       onDelete={async () => {}}
       onImportBook={async () => {}}
+      onImportProject={async () => {}}
     />)
 
     expect(html).toContain('导入 TXT / EPUB')
     expect(html).not.toContain('新建工程')
-    expect(html).not.toContain('导入项目')
+    expect(html).toContain('导入项目')
   })
 })

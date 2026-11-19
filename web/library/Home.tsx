@@ -4,7 +4,7 @@ import {
   type ProjectAssetGroup, type ProjectAssetRef, type WorkspaceSummary,
 } from '../platform/backend'
 import { open } from '@tauri-apps/plugin-dialog'
-import { BookOpen, ChevronDown, FilePlus2, Image as ImageIcon, Plus, Settings2, Trash2, Type, X } from 'lucide-react'
+import { BookOpen, ChevronDown, FilePlus2, FolderOpen, Image as ImageIcon, Plus, Settings2, Trash2, Type, X } from 'lucide-react'
 import { startWindowDrag } from '../platform/windowDrag'
 import { assetMeta, kindLabel, markShared, pendingAssets } from './projectAssets'
 import { sharedFontFamily } from './fontSelection'
@@ -21,6 +21,7 @@ interface Props {
   onOpen: (id: number) => Promise<void>
   onDelete: (id: number) => Promise<void>
   onImportBook: () => Promise<void>
+  onImportProject: () => Promise<void>
 }
 
 interface PreviewState { name: string; kind: AssetKind; mime: string; dataUri: string; family: string }
@@ -152,7 +153,7 @@ function ProjectGroup({ project, kind, group, groupError, busy, onLoad, onPrevie
   </div>
 }
 
-export default function Home({ workspaces, busy, error, notice, onOpen, onDelete, onImportBook }: Props) {
+export default function Home({ workspaces, busy, error, notice, onOpen, onDelete, onImportBook, onImportProject }: Props) {
   const [tab, setTab] = useState<Tab>('projects')
   const [showSettings, setShowSettings] = useState(false)
   const [assets, setAssets] = useState<AssetSummary[]>([])
@@ -268,6 +269,7 @@ export default function Home({ workspaces, busy, error, notice, onOpen, onDelete
       <div className="books-brand"><span><BookOpen size={22}/></span><div><strong>EPUB Studio</strong><small>我的图书工作台</small></div></div>
       <div className="books-header-actions">
         <button className="books-new" onClick={onImportBook} disabled={busy}><FilePlus2 size={16}/>导入 TXT / EPUB</button>
+        <button onClick={onImportProject} disabled={busy}><FolderOpen size={16}/>导入项目</button>
         <button onClick={() => setShowSettings(true)} title="设置" aria-label="设置"><Settings2 size={16}/>设置</button>
       </div>
     </header>
