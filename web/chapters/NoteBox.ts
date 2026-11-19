@@ -70,6 +70,24 @@ export const NoteBoxTitle = Node.create({
   renderHTML({ HTMLAttributes }) { return ['p', mergeAttributes(HTMLAttributes, { class: 'note-box-title' }), 0] },
 })
 
+/** Inline icons inside imported tip paragraphs; regular chapter images stay block images. */
+export const NoteInlineImage = Node.create({
+  name: 'noteInlineImage',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  priority: 1100,
+  addAttributes() {
+    return {
+      src: { default: null, parseHTML: element => element.getAttribute('src') },
+      alt: { default: null, parseHTML: element => element.getAttribute('alt') },
+      class: { default: null, parseHTML: element => element.getAttribute('class') },
+    }
+  },
+  parseHTML() { return [{ tag: 'aside.note-box img' }, { tag: 'img.footnote-img' }] },
+  renderHTML({ HTMLAttributes }) { return ['img', mergeAttributes(HTMLAttributes)] },
+})
+
 /** A bordered tip with its own directly editable title and body. */
 export const NoteBox = Node.create({
   name: 'noteBox',

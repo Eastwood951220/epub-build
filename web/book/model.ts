@@ -54,20 +54,28 @@ export const NOTE_BOX_DEFAULTS: Required<NoteBoxStyle> = {
   borderWidth: 1.5,
   borderStyle: 'solid',
   cornerRadius: 22,
-  backgroundColor: '',
+  backgroundColor: '#ffffff',
   backgroundImage: null,
   backgroundSize: 'cover',
-  titleBackground: '#ffffff',
-  titleColor: '#b38971',
+  titleBackground: '#b38971',
+  titleColor: '#ffffff',
   showTitle: true,
   defaultTitle: '小贴士',
-  textColor: '#a8795f',
+  textColor: '#b38971',
 }
 
 /** Merges a stored (possibly partial) tip box style with the defaults. */
 export function noteBoxStyle(style: BookStyle | NoteBoxStyle | undefined): Required<NoteBoxStyle> {
   const source = (style && 'noteBox' in style ? style.noteBox : style) as NoteBoxStyle | undefined
-  return { ...NOTE_BOX_DEFAULTS, ...(source ?? {}) }
+  const box = { ...NOTE_BOX_DEFAULTS, ...(source ?? {}) }
+  // Older projects stored the former white badge / transparent fill defaults.
+  if (!box.backgroundColor) box.backgroundColor = '#ffffff'
+  if (box.textColor.toLowerCase() === '#a8795f' && box.borderColor.toLowerCase() === '#b38971') box.textColor = '#b38971'
+  if (box.titleBackground.toLowerCase() === '#ffffff' && box.titleColor.toLowerCase() === '#b38971' && box.borderColor.toLowerCase() === '#b38971') {
+    box.titleBackground = '#b38971'
+    box.titleColor = '#ffffff'
+  }
+  return box
 }
 
 export interface ChapterNote { id: string; text: string }
@@ -374,14 +382,12 @@ export function noteBoxVars(style: BookStyle | NoteBoxStyle | undefined): Record
   return {
     '--note-box-border': width <= 0 || line === 'none' ? 'none' : `${width}px ${line} ${box.borderColor}`,
     '--note-box-radius': `0 ${Math.min(60, Math.max(0, box.cornerRadius))}px 0 ${Math.min(60, Math.max(0, box.cornerRadius))}px`,
-    '--note-box-bg-color': box.backgroundColor || 'transparent',
+    '--note-box-bg-color': box.backgroundColor,
     '--note-box-bg-image': box.backgroundImage ? `url("${box.backgroundImage}")` : 'none',
     '--note-box-bg-size': ['contain', 'auto', '100% 100%'].includes(box.backgroundSize) ? box.backgroundSize : 'cover',
-    '--note-box-title-bg': box.titleBackground === box.borderColor ? '#ffffff' : box.titleBackground,
-    '--note-box-title-color': box.borderColor,
+    '--note-box-title-bg': box.titleBackground,
+    '--note-box-title-color': box.titleColor,
     '--note-box-title-display': box.showTitle ? 'table' : 'none',
-    '--note-box-title-columns': box.showTitle ? 'max-content minmax(0,1fr)' : '0 minmax(0,1fr)',
-    '--note-box-title-gap': box.showTitle ? '.65em' : '0',
     '--note-box-text-color': box.textColor,
   }
 }

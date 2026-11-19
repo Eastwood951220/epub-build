@@ -19,7 +19,7 @@ import { PreserveIds } from './chapters/PreserveIds'
 import { SourceClass } from './chapters/SourceClass'
 import { scopeSourceCss, sourceFontOptions } from './book/sourceCss'
 import { NoteMarker } from './chapters/NoteMarker'
-import { NoteBox, NoteBoxTitle, appendNoteBox, hasNoteBox, removeNoteBoxes } from './chapters/NoteBox'
+import { NoteBox, NoteBoxTitle, NoteInlineImage, appendNoteBox, hasNoteBox, removeNoteBoxes } from './chapters/NoteBox'
 import { orderedNotes } from './chapters/notes'
 import ChapterReview from './chapters/ChapterReview'
 import FindReplace from './chapters/FindReplaceDialog'
@@ -115,6 +115,7 @@ export default function App() {
       NoteMarker,
       NoteBox,
       NoteBoxTitle,
+      NoteInlineImage,
       TextStyleKit,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Image.configure({ allowBase64: true }),
@@ -995,9 +996,9 @@ export default function App() {
               <div className="field-row"><label>边框颜色<HexColorInput label="小贴士边框颜色" value={noteBox.borderColor} onChange={color => setNoteBox('borderColor', color)}/></label><label>圆角（px）<input type="number" min="0" max="40" value={noteBox.cornerRadius} onChange={event => setNoteBox('cornerRadius', Number(event.target.value))}/></label></div>
             </>}
             <label className="setting-checkbox"><input type="checkbox" checked={noteBox.showTitle} onChange={event => setNoteBox('showTitle', event.target.checked)}/>显示边框标题</label>
-            {noteBox.showTitle && <div className="field-row"><label>默认标题文字<input type="text" maxLength={24} value={noteBox.defaultTitle} onChange={event => setNoteBox('defaultTitle', event.target.value)} placeholder="小贴士"/></label><label>标题底色<HexColorInput label="小贴士标题底色" value={noteBox.titleBackground} onChange={color => setNoteBox('titleBackground', color)}/></label></div>}
-            <p className="setting-help">新建小贴士使用默认标题；已插入的标题可直接在正文修改。标题文字颜色跟随边框颜色。</p>
-            <div className="field-row"><label>正文颜色<HexColorInput label="小贴士正文颜色" value={noteBox.textColor} onChange={color => setNoteBox('textColor', color)}/></label><label className="setting-checkbox"><input type="checkbox" checked={!!noteBox.backgroundColor} onChange={event => setNoteBox('backgroundColor', event.target.checked ? '#fff8f0' : '')}/>使用背景色</label>{noteBox.backgroundColor && <HexColorInput label="小贴士背景色" value={noteBox.backgroundColor || '#fff8f0'} onChange={color => setNoteBox('backgroundColor', color)}/>}</div>
+            {noteBox.showTitle && <><div className="field-row"><label>默认标题文字<input type="text" maxLength={24} value={noteBox.defaultTitle} onChange={event => setNoteBox('defaultTitle', event.target.value)} placeholder="小贴士"/></label><label>标题底色<HexColorInput label="小贴士标题底色" value={noteBox.titleBackground} onChange={color => setNoteBox('titleBackground', color)}/></label></div><label>标题文字色<HexColorInput label="小贴士标题文字色" value={noteBox.titleColor} onChange={color => setNoteBox('titleColor', color)}/></label></>}
+            <p className="setting-help">新建小贴士使用默认标题；已插入的标题可直接在正文修改。</p>
+            <div className="field-row"><label>正文颜色<HexColorInput label="小贴士正文颜色" value={noteBox.textColor} onChange={color => setNoteBox('textColor', color)}/></label><label className="setting-checkbox"><input type="checkbox" checked={noteBox.backgroundColor !== 'transparent'} onChange={event => setNoteBox('backgroundColor', event.target.checked ? '#ffffff' : 'transparent')}/>使用背景色</label>{noteBox.backgroundColor !== 'transparent' && <HexColorInput label="小贴士背景色" value={noteBox.backgroundColor} onChange={color => setNoteBox('backgroundColor', color)}/>}</div>
             <div className="note-image-setting"><span>背景图（可选，与背景色叠加）</span><div>{noteBox.backgroundImage && <img src={noteBox.backgroundImage} alt="小贴士背景图预览"/>}<button className="button" type="button" onClick={() => void chooseNoteBoxBackground()}>{noteBox.backgroundImage ? '更换图片' : '选择图片'}</button>{noteBox.backgroundImage && <button className="button" type="button" onClick={() => setNoteBox('backgroundImage', null)}>移除图片</button>}</div></div>
             {noteBox.backgroundImage && <label>背景图填充方式<select value={noteBox.backgroundSize} onChange={event => setNoteBox('backgroundSize', event.target.value)}><option value="cover">铺满并裁剪</option><option value="contain">完整显示</option><option value="100% 100%">拉伸铺满</option><option value="auto">原始大小</option></select></label>}
           </div>

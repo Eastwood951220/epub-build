@@ -23,6 +23,11 @@ describe('project model', () => {
   it('draws the tip box from its configurable style', () => {
     const book = createEmptyProject()
     expect(previewStyles(book.style)['--note-box-border']).toBe('1.5px solid #b38971')
+    expect(previewStyles(book.style)['--note-box-title-bg']).toBe('#b38971')
+    expect(previewStyles(book.style)['--note-box-title-color']).toBe('#ffffff')
+    expect(previewStyles(book.style)['--note-box-bg-color']).toBe('#ffffff')
+    expect(previewStyles(book.style)['--note-box-text-color']).toBe('#b38971')
+    expect(noteBoxStyle({ titleBackground: '#ffffff', titleColor: '#b38971' }).titleBackground).toBe('#b38971')
     expect(previewStyles(book.style)['--note-box-radius']).toBe('0 22px 0 22px')
     book.style.noteBox = { borderWidth: 0 }
     expect(previewStyles(book.style)['--note-box-border']).toBe('none')
@@ -36,16 +41,14 @@ describe('project model', () => {
     expect(css['--note-box-bg-image']).toBe('url("data:image/png;base64,AAA")')
     expect(css['--note-box-bg-size']).toBe('contain')
     expect(css['--note-box-title-bg']).toBe('#222222')
-    expect(css['--note-box-title-color']).toBe('#123456')
+    expect(css['--note-box-title-color']).toBe('#eeeeee')
     expect(css['--note-box-text-color']).toBe('#333333')
     expect(noteBoxStyle({ borderWidth: 2 }).borderColor).toBe('#b38971')
     expect(resolveStyle(book.style, { titleFontSize: 22 }).noteBox?.borderWidth).toBe(3)
     book.style.noteBox = { ...book.style.noteBox, showTitle: false, defaultTitle: '史料补充' }
     expect(previewStyles(book.style)['--note-box-title-display']).toBe('none')
-    expect(previewStyles(book.style)['--note-box-title-columns']).toBe('0 minmax(0,1fr)')
     expect(noteBoxStyle(book.style).defaultTitle).toBe('史料补充')
     book.style.noteBox.showTitle = true
-    expect(previewStyles(book.style)['--note-box-title-columns']).toBe('max-content minmax(0,1fr)')
   })
 
   it('uses the optional two-character first-line indent in preview and volume chapters', () => {

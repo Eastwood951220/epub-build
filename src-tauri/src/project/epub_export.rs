@@ -81,6 +81,7 @@ fn embed_inline_images(html: &str, assets: &mut Vec<ImageAsset>) -> Result<Strin
     let image_tag = Regex::new(r"(?i)<img\b[^>]*>").unwrap();
     let src_attr = Regex::new(r#"(?i)\bsrc=["']([^"']+)["']"#).unwrap();
     let alt_attr = Regex::new(r#"(?i)\balt=["']([^"']*)["']"#).unwrap();
+    let class_attr = Regex::new(r#"(?i)\bclass=["']([^"']*)["']"#).unwrap();
     let mut output = String::new();
     let mut end = 0;
     for found in image_tag.find_iter(html) {
@@ -93,9 +94,12 @@ fn embed_inline_images(html: &str, assets: &mut Vec<ImageAsset>) -> Result<Strin
                 .and_then(|c| c.get(1))
                 .map(|m| m.as_str())
                 .unwrap_or("");
+            let class = class_attr.captures(tag).and_then(|c| c.get(1))
+                .map(|value| format!(" class=\"{}\"", escape_xml(value.as_str())))
+                .unwrap_or_default();
             output.push_str(&format!(
-                "<img src=\"../images/{name}\" alt=\"{}\" />",
-                escape_xml(alt)
+                "<img src=\"../images/{name}\" alt=\"{}\"{class} />",
+                escape_xml(alt),
             ));
         }
         end = found.end();
@@ -365,14 +369,8 @@ fn note_box_css(style: &NoteBoxStyle, background: Option<&str>) -> String {
         )
     };
     let radius = style.corner_radius.min(60);
-    let mut fill = if style.background_color.trim().is_empty() {
-        String::new()
-    } else {
-        format!(
-            "background-color:{};",
-            safe_css_color(&style.background_color, "transparent")
-        )
-    };
+    let fill_color = if style.background_color == "transparent" { "transparent" } else { safe_css_color(&style.background_color, "#ffffff") };
+    let mut fill = format!("background-color:{fill_color};");
     if let Some(name) = background {
         let size = match style.background_size.as_str() {
             "contain" | "auto" | "100% 100%" => style.background_size.as_str(),
@@ -382,14 +380,13 @@ fn note_box_css(style: &NoteBoxStyle, background: Option<&str>) -> String {
             "background-image:url('../images/{name}');background-size:{size};background-position:center;background-repeat:no-repeat;"
         ));
     }
+    let old_badge = style.title_background.eq_ignore_ascii_case("#ffffff") && style.title_color.eq_ignore_ascii_case("#b38971") && style.border_color.eq_ignore_ascii_case("#b38971");
     format!(
-        ".note-box{{display:grid;grid-template-columns:{};column-gap:{};align-items:start;position:relative;margin:2.1em 0 2em;padding:1.1em 1.2em;border:{border};border-radius:0 {radius}px 0 {radius}px;{fill}color:{};line-height:1.65;text-align:left}}.note-box .note-box-title{{display:{};position:relative;min-width:4.5em;max-width:8em;margin:0;padding:.1em .65em;border-radius:18px;background:{};color:{};text-align:center;font-weight:bold;line-height:1.5;text-indent:0;overflow-wrap:anywhere}}.note-box>:not(.note-box-title){{grid-column:2;min-width:0}}.note-box p{{margin:0 0 .55em;text-indent:0}}.note-box p:last-child{{margin-bottom:0}}.note-box img{{display:inline-block;max-width:1em;max-height:1em;vertical-align:middle;margin:0 .2em 0 0}}",
-        if style.show_title { "max-content minmax(0,1fr)" } else { "0 minmax(0,1fr)" },
-        if style.show_title { ".65em" } else { "0" },
-        safe_css_color(&style.text_color, "#a8795f"),
+        ".note-box{{position:relative;margin:2.1em 0 2em;padding:1.5em 1.2em .9em;border:{border};border-radius:0 {radius}px 0 {radius}px;{fill}color:{};line-height:1.65;text-align:left}}.note-box .note-box-title{{display:{};position:relative;min-width:4.5em;max-width:8em;margin:-2.35em 0 1em .2em;padding:.1em .65em;border-radius:18px;background:{};color:{};text-align:center;font-weight:bold;line-height:1.5;text-indent:0;overflow-wrap:anywhere}}.note-box p{{margin:0 0 .55em;text-indent:0}}.note-box p:last-child{{margin-bottom:0}}.note-box img{{display:inline-block;max-width:1em;max-height:1em;vertical-align:middle;margin:0 .2em 0 0}}",
+        safe_css_color(if style.text_color.eq_ignore_ascii_case("#a8795f") && style.border_color.eq_ignore_ascii_case("#b38971") { "#b38971" } else { &style.text_color }, "#b38971"),
         if style.show_title { "table" } else { "none" },
-        safe_css_color(if style.title_background == style.border_color { "#ffffff" } else { &style.title_background }, "#ffffff"),
-        safe_css_color(&style.border_color, "#b38971"),
+        safe_css_color(if old_badge { "#b38971" } else { &style.title_background }, "#b38971"),
+        safe_css_color(if old_badge { "#ffffff" } else { &style.title_color }, "#ffffff"),
     )
 }
 
@@ -950,6 +947,8 @@ mod image_tests {
             html,
             "<p><img src=\"../images/image-1.webp\" alt=\"图\" /></p>"
         );
+        let decorated = embed_inline_images("<p><img class=\"footnote-img\" src=\"data:image/webp;base64,UklGRgAAAABXRUJQ\" alt=\"备注\" /></p>", &mut assets).unwrap();
+        assert!(decorated.contains("class=\"footnote-img\""));
         assert_eq!(assets[0].media_type, "image/webp");
     }
 
@@ -983,6 +982,12 @@ mod image_tests {
         let css = note_box_css(&style.note_box, None);
         assert!(css.contains("border:1.5px solid #b38971"));
         assert!(css.contains("border-radius:0 22px 0 22px"));
+        assert!(css.contains("background-color:#ffffff"));
+        assert!(css.contains("background:#b38971;color:#ffffff"));
+        let legacy = NoteBoxStyle { background_color: String::new(), title_background: "#ffffff".into(), title_color: "#b38971".into(), ..NoteBoxStyle::default() };
+        let legacy_css = note_box_css(&legacy, None);
+        assert!(legacy_css.contains("background-color:#ffffff"));
+        assert!(legacy_css.contains("background:#b38971;color:#ffffff"));
         assert!(!css.contains("background-image"));
 
         let plain = NoteBoxStyle { border_width: 0.0, ..NoteBoxStyle::default() };
@@ -1004,11 +1009,11 @@ mod image_tests {
         assert!(css.contains("border:3px dashed #123456"));
         let double = NoteBoxStyle { border_style: "double".into(), ..fancy.clone() };
         assert!(note_box_css(&double, None).contains("border:3px double #123456"));
-        assert!(css.contains("color:#123456"));
+        assert!(css.contains("color:#eeeeee"));
         let hidden = NoteBoxStyle { show_title: false, ..fancy.clone() };
         assert!(note_box_css(&hidden, None).contains(".note-box .note-box-title{display:none"));
-        assert!(css.contains("display:grid;grid-template-columns:max-content minmax(0,1fr)"));
-        assert!(hidden.show_title == false && note_box_css(&hidden, None).contains("grid-template-columns:0 minmax(0,1fr)"));
+        assert!(css.contains(".note-box{position:relative"));
+        assert!(css.contains("margin:-2.35em 0 1em .2em"));
         assert!(css.contains("border-radius:0 6px 0 6px"));
         assert!(css.contains("background-color:#fff8f0"));
         assert!(css.contains("background-image:url('../images/image-7.png')"));

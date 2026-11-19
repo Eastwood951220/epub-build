@@ -179,14 +179,14 @@ impl Default for NoteBoxStyle {
             border_width: 1.5,
             border_style: "solid".into(),
             corner_radius: 22,
-            background_color: String::new(),
+            background_color: "#ffffff".into(),
             background_image: None,
             background_size: "cover".into(),
-            title_background: "#ffffff".into(),
-            title_color: "#b38971".into(),
+            title_background: "#b38971".into(),
+            title_color: "#ffffff".into(),
             show_title: true,
             default_title: "小贴士".into(),
-            text_color: "#a8795f".into(),
+            text_color: "#b38971".into(),
         }
     }
 }
