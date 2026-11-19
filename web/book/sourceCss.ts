@@ -22,6 +22,20 @@ function scopedSelector(selector: string, root: string): string {
   return `${root} ${withoutRoot}`
 }
 
+/** Uses CSS content for display because imported EPUB filenames may be obfuscated. */
+export function sourceStylesheetLabel(stylesheet: SourceStylesheet, index: number): string {
+  try {
+    const sheet = postcss.parse(stylesheet.css)
+    let hasRules = false
+    let hasFontFaces = false
+    sheet.walkRules(() => { hasRules = true })
+    sheet.walkAtRules('font-face', () => { hasFontFaces = true })
+    if (hasRules) return `正文与局部样式 ${index + 1}`
+    if (hasFontFaces) return `字体定义 ${index + 1}`
+  } catch { /* Keep malformed original CSS available without exposing its filename. */ }
+  return `原书样式 ${index + 1}`
+}
+
 /** Font faces backed by files retained from the imported EPUB. */
 export function sourceFontOptions(stylesheets: SourceStylesheet[] = [], assets: SourceStyleAsset[] = []): { value: string; label: string }[] {
   const paths = new Set(assets.map(asset => asset.path))

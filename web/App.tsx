@@ -17,7 +17,7 @@ import {
 } from './book/model'
 import { PreserveIds } from './chapters/PreserveIds'
 import { SourceClass } from './chapters/SourceClass'
-import { scopeSourceCss, sourceFontOptions } from './book/sourceCss'
+import { scopeSourceCss, sourceFontOptions, sourceStylesheetLabel } from './book/sourceCss'
 import { NoteMarker } from './chapters/NoteMarker'
 import { NoteBox, NoteBoxTitle, NoteInlineImage, appendNoteBox, hasNoteBox, removeNoteBoxes } from './chapters/NoteBox'
 import { orderedNotes } from './chapters/notes'
@@ -796,6 +796,7 @@ export default function App() {
   const availableFonts = fontOptions(fontChoices, book.fontAssets ?? [], assetsByKind.font, importedFonts)
   const embeddedFontCss = (book.fontAssets ?? []).filter(font => /^EPUBStudio(?:Library)?Font\d+$/.test(font.family) && /^font\/(ttf|otf|woff|woff2)$/.test(font.mime) && new RegExp(`^data:${font.mime};base64,[A-Za-z0-9+/=]+$`).test(font.dataUri)).map(font => `@font-face{font-family:'${font.family}';src:url('${font.dataUri}')}`).join('\n') + (previewAsset?.kind === 'font' ? `@font-face{font-family:'${sharedFontFamily(previewAsset.id)}';src:url('${previewAsset.dataUri}')}` : '')
   const importedCss = useMemo(() => scopeSourceCss(book.sourceStylesheets, book.sourceStyleAssets, { suppressPageBackground: true }), [book.sourceStylesheets, book.sourceStyleAssets])
+  const sourceStylesheetLabels = useMemo(() => (book.sourceStylesheets ?? []).map(sourceStylesheetLabel), [book.sourceStylesheets])
   const customCssPreview = useMemo(() => scopeSourceCss([{ path: 'OEBPS/styles/custom.css', css: book.customCss ?? '' }]), [book.customCss])
 
   const reviewDialog = review ? <ChapterReview
@@ -1015,7 +1016,7 @@ export default function App() {
         />
       </> : settingsDialog === 'css' ? <>
         <section className="setting-section"><h3>原书 CSS</h3><p className="setting-help">导入的样式表和引用的字体、图片会保存在工程中，预览与导出继续使用。原书样式只读，下面可以追加覆盖规则。</p>
-          {(book.sourceStylesheets ?? []).map((stylesheet, index) => <details className="source-css-file" key={`${stylesheet.path}-${index}`}><summary title={stylesheet.path}>{stylesheet.path.split('/').at(-1)}</summary><textarea aria-label={`原书 CSS ${index + 1}`} readOnly value={stylesheet.css}/></details>)}
+          {(book.sourceStylesheets ?? []).map((stylesheet, index) => <details className="source-css-file" key={`${stylesheet.path}-${index}`}><summary>{sourceStylesheetLabels[index]}</summary><textarea aria-label={`原书 CSS ${index + 1}`} readOnly value={stylesheet.css}/></details>)}
           {!book.sourceStylesheets?.length && <p className="setting-help">当前工程没有导入的 CSS 文件。</p>}
         </section>
         <section className="setting-section"><h3>追加 CSS</h3><p className="setting-help">规则仅作用于章节正文，保留原书 CSS。可覆盖对话颜色等样式，例如 <code>.talk {'{'} color: #863020; {'}'}</code>。</p>

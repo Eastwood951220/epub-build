@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { scopeSourceCss, sourceFontOptions } from './sourceCss'
+import { scopeSourceCss, sourceFontOptions, sourceStylesheetLabel } from './sourceCss'
 
 describe('imported EPUB CSS', () => {
+  it('shows readable labels instead of obfuscated EPUB stylesheet filenames', () => {
+    expect(sourceStylesheetLabel({ path: 'OEBPS/Styles/_*::**::::.css', css: '@charset "utf-8";@font-face{font-family:"Test";src:url("font.otf")}' }, 0)).toBe('字体定义 1')
+    expect(sourceStylesheetLabel({ path: 'OEBPS/Styles/_***:*::*.css', css: 'body{margin:0} p.special{color:#863020}' }, 1)).toBe('正文与局部样式 2')
+  })
+
   it('keeps class colours and embedded fonts inside chapter content', () => {
     const css = scopeSourceCss(
       [{ path: 'OEBPS/Styles/original.css', css: '@font-face{font-family:"Talk";src:url("../Fonts/talk.otf")} span.talk{font-family:"Talk";color:#863020} p.special{color:#456789} body{line-height:1.5}' }],
