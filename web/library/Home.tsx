@@ -9,6 +9,7 @@ import { startWindowDrag } from '../platform/windowDrag'
 import { assetMeta, kindLabel, markShared, pendingAssets } from './projectAssets'
 import { sharedFontFamily } from './fontSelection'
 import SettingsDialog from '../settings/SettingsDialog'
+import ImagePreviewDialog from './ImagePreviewDialog'
 
 export type { WorkspaceSummary } from '../platform/backend'
 
@@ -295,7 +296,7 @@ export default function Home({ workspaces, busy, error, notice, onOpen, onDelete
       </section> : <section aria-label={label}>
         <div className="books-section-title"><div><span>SHARED ASSETS</span><h1>{label}</h1></div><button className="books-new" onClick={importAsset} disabled={libraryBusy}><Plus size={17}/>导入{label}</button></div>
         <p className="books-library-help">公用{label}由所有工程共享；工程{label}来自各书稿内嵌的资源，提取只是复制一份，书稿本身不变。</p>
-        {preview && <div className="books-asset-preview"><div><strong>{preview.name}</strong><button onClick={() => setPreview(null)} aria-label="关闭预览"><X size={18}/></button></div>{preview.kind === 'image' ? <img src={preview.dataUri} alt={preview.name}/> : <p style={{fontFamily:`'${preview.family}',serif`}}>春江花月夜 · ABC 123</p>}</div>}
+        {preview?.kind === 'font' && <div className="books-asset-preview"><div><strong>{preview.name}</strong><button onClick={() => setPreview(null)} aria-label="关闭预览"><X size={18}/></button></div><p style={{fontFamily:`'${preview.family}',serif`}}>春江花月夜 · ABC 123</p></div>}
         <div className="books-subhead">公用{label}<em>{assets.length}</em></div>
         {assets.length === 0 ? <div className="books-empty"><span>{tab === 'font' ? <Type size={36}/> : <ImageIcon size={36}/>}</span><h2>还没有公用{label}</h2><p>点击右上角导入，之后可在任何工程中使用。</p></div> : <div className="books-assets-grid">{assets.map(asset => <article className="books-asset-item" key={asset.id}>{tab === 'font' ? <div className="books-asset-symbol"><Type size={30}/></div> : <LazyImage name={asset.name} load={() => backend.getAsset(asset.id).then(data => data.dataUri)}/>}<strong title={asset.name}>{asset.name}</strong><small>{assetMeta(asset)}</small><div><button onClick={() => previewAsset(asset)} disabled={libraryBusy}>预览</button><button onClick={() => deleteAsset(asset)} disabled={libraryBusy} title={`删除 ${asset.name}`} aria-label={`删除 ${asset.name}`}><Trash2 size={16}/></button></div></article>)}</div>}
         <div className="books-subhead">工程{label}<em>{workspaces.length}</em></div>
@@ -306,5 +307,6 @@ export default function Home({ workspaces, busy, error, notice, onOpen, onDelete
     </div></div>
     <footer className="books-home-status"><span>{libraryNotice || notice}</span><span>{busy || libraryBusy ? '处理中…' : '本机工程 · 公用资源库'}</span></footer>
     {showSettings && <SettingsDialog onClose={() => setShowSettings(false)}/>}
+    {preview?.kind === 'image' && <ImagePreviewDialog name={preview.name} dataUri={preview.dataUri} onClose={() => setPreview(null)}/>}
   </div>
 }
