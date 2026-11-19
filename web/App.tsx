@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import Image from '@tiptap/extension-image'
 import TextAlign from '@tiptap/extension-text-align'
 import { TextStyleKit } from '@tiptap/extension-text-style'
 import { backend, type AssetData, type AssetKind, type AssetSummary, type WorkspaceSummary } from './platform/backend'
@@ -17,6 +16,7 @@ import {
 } from './book/model'
 import { PreserveIds } from './chapters/PreserveIds'
 import { SourceClass } from './chapters/SourceClass'
+import SourceImage from './chapters/SourceImage'
 import { scopeSourceCss, sourceFontOptions, sourceStylesheetLabel } from './book/sourceCss'
 import { NoteMarker } from './chapters/NoteMarker'
 import { NoteBox, NoteBoxTitle, NoteInlineImage, appendNoteBox, hasNoteBox, removeNoteBoxes } from './chapters/NoteBox'
@@ -128,7 +128,7 @@ export default function App() {
       NoteInlineImage,
       TextStyleKit,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      Image.configure({ allowBase64: true }),
+      SourceImage.configure({ allowBase64: true }),
     ],
     content: book.chapters[0].html,
     onUpdate: ({ editor: current }) => {

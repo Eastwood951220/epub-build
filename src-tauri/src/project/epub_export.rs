@@ -82,6 +82,7 @@ fn embed_inline_images(html: &str, assets: &mut Vec<ImageAsset>) -> Result<Strin
     let src_attr = Regex::new(r#"(?i)\bsrc=["']([^"']+)["']"#).unwrap();
     let alt_attr = Regex::new(r#"(?i)\balt=["']([^"']*)["']"#).unwrap();
     let class_attr = Regex::new(r#"(?i)\bclass=["']([^"']*)["']"#).unwrap();
+    let width_attr = Regex::new(r#"(?i)\bwidth=["']([^"']*)["']"#).unwrap();
     let mut output = String::new();
     let mut end = 0;
     for found in image_tag.find_iter(html) {
@@ -97,8 +98,11 @@ fn embed_inline_images(html: &str, assets: &mut Vec<ImageAsset>) -> Result<Strin
             let class = class_attr.captures(tag).and_then(|c| c.get(1))
                 .map(|value| format!(" class=\"{}\"", escape_xml(value.as_str())))
                 .unwrap_or_default();
+            let width = width_attr.captures(tag).and_then(|c| c.get(1))
+                .map(|value| format!(" width=\"{}\"", escape_xml(value.as_str())))
+                .unwrap_or_default();
             output.push_str(&format!(
-                "<img src=\"../images/{name}\" alt=\"{}\"{class} />",
+                "<img src=\"../images/{name}\" alt=\"{}\"{class}{width} />",
                 escape_xml(alt),
             ));
         }
@@ -405,7 +409,7 @@ fn style_css(style: &BookStyle, fonts: &[&EmbeddedFont], note_box_background: Op
         }
     }
     let mut css = format!(
-        "{faces}body{{font-family:{};font-size:{}px;line-height:{:.2};text-align:{};margin:0 auto;max-width:42em;padding:1.5em;color:#20302e}}h1{{font-family:{};font-size:{}px;text-align:{};line-height:1.35;margin:1.2em 0}}p{{margin:0 0 {:.2}em{}}}.chapter-heading{{margin-bottom:{}px}}img{{display:block;margin:1.2em auto;max-width:100%;height:auto}}.chapter-image{{text-align:center;margin:1.5em 0}}.chapter-image img{{margin:0 auto}}",
+        "{faces}body{{font-family:{};font-size:{}px;line-height:{:.2};text-align:{};margin:0 auto;max-width:42em;padding:1.5em;color:#20302e}}h1{{font-family:{};font-size:{}px;text-align:{};line-height:1.35;margin:1.2em 0}}p{{margin:0 0 {:.2}em{}}}.chapter-heading{{margin-bottom:{}px}}img{{display:block;margin:1.2em auto;max-width:100%;height:auto}}img.pp[alt='pp']{{width:15%;max-width:100%;height:auto}}.chapter-image{{text-align:center;margin:1.5em 0}}.chapter-image img{{margin:0 auto}}",
         css_font(&style.body_font_family, fonts),
         style.body_font_size.clamp(10, 48),
         style.body_line_height.clamp(1.2, 3.0),
@@ -949,7 +953,15 @@ mod image_tests {
         );
         let decorated = embed_inline_images("<p><img class=\"footnote-img\" src=\"data:image/webp;base64,UklGRgAAAABXRUJQ\" alt=\"备注\" /></p>", &mut assets).unwrap();
         assert!(decorated.contains("class=\"footnote-img\""));
+        let sized = embed_inline_images("<img src=\"data:image/webp;base64,UklGRgAAAABXRUJQ\" alt=\"pp\" class=\"pp\" width=\"15%\" />", &mut assets).unwrap();
+        assert!(sized.contains("class=\"pp\" width=\"15%\""));
         assert_eq!(assets[0].media_type, "image/webp");
+    }
+
+    #[test]
+    fn keeps_existing_pp_dividers_small_in_exported_books() {
+        let css = style_css(&BookStyle::default(), &[], None, None, None, None);
+        assert!(css.contains("img.pp[alt='pp']{width:15%;max-width:100%;height:auto}"));
     }
 
     #[test]

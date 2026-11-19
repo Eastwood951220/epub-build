@@ -282,6 +282,7 @@ input,textarea,select,[contenteditable=true],.ProseMirror,.preview-content{-webk
 .ci-empty{margin:0;padding:6px 2px;font-size:11px;color:#8aa199}
 
 .preview-content img{display:block;margin:1.2em auto}
+.chapter-editor img.pp[alt="pp"],.preview-content img.pp[alt="pp"]{width:15%;max-width:100%;height:auto}
 
 .text-color{position:relative;display:flex}
 .text-color-button{position:relative;display:grid;place-items:center;width:29px;height:29px;flex:none;border:0;border-radius:5px;background:transparent;color:#587670}

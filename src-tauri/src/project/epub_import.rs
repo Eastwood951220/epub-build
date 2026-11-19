@@ -759,10 +759,11 @@ fn import_node(
             _ => return String::new(),
         };
         return format!(
-            "<img src=\"data:{mime};base64,{}\" alt=\"{}\"{} />",
+            "<img src=\"data:{mime};base64,{}\" alt=\"{}\"{}{} />",
             STANDARD.encode(bytes),
             escape_xml(node.attribute("alt").unwrap_or("")),
             node.attribute("class").map(|class| format!(" class=\"{}\"", escape_xml(class))).unwrap_or_default(),
+            node.attribute("width").map(|width| format!(" width=\"{}\"", escape_xml(width))).unwrap_or_default(),
         );
     }
     if tag == "br" {
@@ -936,11 +937,12 @@ mod source_style_tests {
         writer.write_all(b"png bytes").unwrap();
         writer.finish().unwrap();
         let mut archive = ZipArchive::new(file.reopen().unwrap()).unwrap();
-        let xml = parse_xml("<body><p class='special-p2'>A <span class='talk'>B</span><img class='footnote-img' src='../Images/icon.png'/></p></body>").unwrap();
+        let xml = parse_xml("<body><p class='special-p2'>A <span class='talk'>B</span><img class='footnote-img' src='../Images/icon.png' width='15%'/></p></body>").unwrap();
         let html = import_node(xml.descendants().find(|node| node.has_tag_name("p")).unwrap(), "OEBPS/Text/1.xhtml", &mut archive);
         assert!(html.contains("class=\"special-p2\""));
         assert!(html.contains("class=\"talk\""));
         assert!(html.contains("class=\"footnote-img\""));
+        assert!(html.contains("width=\"15%\""));
         let (styles, assets) = read_source_styles(&mut archive, &["OEBPS/Styles/original.css".into()]);
         assert_eq!(styles[0].path, "OEBPS/Styles/original.css");
         assert_eq!(assets[0].path, "OEBPS/Fonts/talk.otf");
