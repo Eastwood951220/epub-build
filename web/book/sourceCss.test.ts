@@ -20,6 +20,17 @@ describe('imported EPUB CSS', () => {
     expect(css).not.toMatch(/(^|\})\s*p\s*\{/)
   })
 
+  it('lets the chapter background setting control imported page images', () => {
+    const css = scopeSourceCss(
+      [{ path: 'OEBPS/Styles/original.css', css: 'body{background-image:url("../Images/paper.png");background-size:cover;color:#123456}span.talk{background:#ffeecc}' }],
+      [{ path: 'OEBPS/Images/paper.png', mime: 'image/png', dataUri: 'data:image/png;base64,AA==' }],
+      { suppressPageBackground: true },
+    )
+    expect(css).toContain('.preview-content{color:#123456}')
+    expect(css).not.toContain('data:image/png')
+    expect(css).toContain('span.talk{background:#ffeecc}')
+  })
+
   it('lists embedded font families from the original CSS for local text styling', () => {
     const styles = [{ path: 'OEBPS/Styles/original.css', css: '@font-face{font-family:"风雨魏碑";src:url("../Fonts/talk.otf")}@font-face{font-family:"缺失字体";src:url("../Fonts/missing.ttf")}' }]
     const assets = [{ path: 'OEBPS/Fonts/talk.otf', mime: 'font/otf', dataUri: 'data:font/otf;base64,AA==' }]

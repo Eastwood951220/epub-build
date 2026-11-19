@@ -638,6 +638,9 @@ pub fn export_epub(book: &Project, path: &Path) -> Result<(), String> {
     let chapter_number_background = book.chapter_number_background_image.as_deref().map(|image| add_image(image, &mut assets)).transpose()?;
     let chapter_name_background = book.chapter_name_background_image.as_deref().map(|image| add_image(image, &mut assets)).transpose()?;
     let mut css = style_css(&book.style, &fonts, note_box_background.as_deref(), chapter_background.as_deref(), chapter_number_background.as_deref(), chapter_name_background.as_deref());
+    if chapter_background.is_none() && !book.source_stylesheets.is_empty() {
+        css.push_str("body.chapter-page{background-image:none}");
+    }
     css.push_str(&volume_css(book, &fonts));
     write_zip(
         &mut zip,
@@ -1039,7 +1042,7 @@ mod source_css_tests {
         let source = folder.path().join("book.txt");
         std::fs::write(&source, "第一章 开始\n正文").unwrap();
         let mut book = super::super::import_txt_with_patterns(&source, None, None).unwrap();
-        book.source_stylesheets.push(SourceStylesheet { path: "OEBPS/Styles/original.css".into(), css: "span.talk{color:#863020}".into() });
+        book.source_stylesheets.push(SourceStylesheet { path: "OEBPS/Styles/original.css".into(), css: "body{background-image:url('../Images/paper.png')}span.talk{color:#863020}".into() });
         book.custom_css = "span.talk{color:#ff0000}".into();
         let output = folder.path().join("book.epub");
         export_epub(&book, &output).unwrap();
@@ -1050,5 +1053,11 @@ mod source_css_tests {
         let mut custom = String::new();
         zip.by_name("OEBPS/styles/custom.css").unwrap().read_to_string(&mut custom).unwrap();
         assert_eq!(custom, "span.talk{color:#ff0000}");
+        let mut base = String::new();
+        zip.by_name("OEBPS/styles/book.css").unwrap().read_to_string(&mut base).unwrap();
+        assert!(base.contains("body.chapter-page{background-image:none}"));
+        let mut original = String::new();
+        zip.by_name("OEBPS/styles/source-1.css").unwrap().read_to_string(&mut original).unwrap();
+        assert!(original.contains("body{background-image:url('../Images/paper.png')}"));
     }
 }

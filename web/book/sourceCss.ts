@@ -44,12 +44,19 @@ export function sourceFontOptions(stylesheets: SourceStylesheet[] = [], assets: 
 }
 
 /** Applies an EPUB's CSS to book content without styling the editor chrome. */
-export function scopeSourceCss(stylesheets: SourceStylesheet[] = [], assets: SourceStyleAsset[] = []): string {
+export function scopeSourceCss(stylesheets: SourceStylesheet[] = [], assets: SourceStyleAsset[] = [], options: { suppressPageBackground?: boolean } = {}): string {
   const byPath = new Map(assets.map(asset => [asset.path, asset.dataUri]))
   return stylesheets.map(stylesheet => {
     try {
       const sheet = postcss.parse(stylesheet.css)
       sheet.walkAtRules(rule => { if (['import', 'charset', 'namespace'].includes(rule.name.toLowerCase())) rule.remove() })
+      if (options.suppressPageBackground) sheet.walkRules(rule => {
+        if (rule.selector.split(',').some(selector => /^(?:html|body|:root)$/i.test(selector.trim()))) {
+          rule.walkDecls(declaration => {
+            if (/^background(?:-|$)/i.test(declaration.prop) && declaration.prop.toLowerCase() !== 'background-color') declaration.remove()
+          })
+        }
+      })
       sheet.walkDecls(declaration => {
         declaration.value = declaration.value.replace(/url\(\s*(['"]?)(.*?)\1\s*\)/gi, (_whole, _quote: string, url: string) => {
           if (url.startsWith('#') || /^(?:data:image\/|data:font\/)/i.test(url)) return `url("${url}")`
