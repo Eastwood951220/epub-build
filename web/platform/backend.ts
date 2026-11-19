@@ -77,7 +77,6 @@ export const backend = {
   importBook: (path: string) => invoke<Project>('import_book', { path }),
   redetectTxt: (path: string, chapterPattern?: string, volumePattern?: string) =>
     invoke<Project>('redetect_txt', { path, chapterPattern, volumePattern }),
-  loadProject: (path: string) => invoke<Project>('load_project', { path }),
   saveProject: (path: string, book: Project) => invoke<void>('save_project', { path, book }),
   exportEpub: (path: string, book: Project) => invoke<void>('export_epub', { path, book }),
   readImage: (path: string) => invoke<string>('read_image', { path }),

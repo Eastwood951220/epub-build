@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   backend, type AssetKind, type AssetSummary,
   type ProjectAssetGroup, type ProjectAssetRef, type WorkspaceSummary,
 } from '../platform/backend'
 import { open } from '@tauri-apps/plugin-dialog'
-import { BookOpen, ChevronDown, FilePlus2, FolderOpen, Image as ImageIcon, Plus, Settings2, Trash2, Type, X } from 'lucide-react'
+import { BookOpen, ChevronDown, FilePlus2, Image as ImageIcon, Plus, Settings2, Trash2, Type, X } from 'lucide-react'
 import { startWindowDrag } from '../platform/windowDrag'
 import { assetMeta, kindLabel, markShared, pendingAssets } from './projectAssets'
 import { sharedFontFamily } from './fontSelection'
@@ -13,17 +13,14 @@ import SettingsDialog from '../settings/SettingsDialog'
 export type { WorkspaceSummary } from '../platform/backend'
 
 type Tab = 'projects' | 'font' | 'image'
-export interface NewWorkspaceDetails { title: string; author: string; language: string }
 interface Props {
   workspaces: WorkspaceSummary[]
   busy: boolean
   error: string
   notice: string
-  onCreate: (details: NewWorkspaceDetails) => Promise<void>
   onOpen: (id: number) => Promise<void>
   onDelete: (id: number) => Promise<void>
   onImportBook: () => Promise<void>
-  onImportProject: () => Promise<void>
 }
 
 interface PreviewState { name: string; kind: AssetKind; mime: string; dataUri: string; family: string }
@@ -155,11 +152,9 @@ function ProjectGroup({ project, kind, group, groupError, busy, onLoad, onPrevie
   </div>
 }
 
-export default function Home({ workspaces, busy, error, notice, onCreate, onOpen, onDelete, onImportBook, onImportProject }: Props) {
+export default function Home({ workspaces, busy, error, notice, onOpen, onDelete, onImportBook }: Props) {
   const [tab, setTab] = useState<Tab>('projects')
-  const [showCreate, setShowCreate] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [details, setDetails] = useState<NewWorkspaceDetails>({ title: '', author: '', language: 'zh-CN' })
   const [assets, setAssets] = useState<AssetSummary[]>([])
   const [groups, setGroups] = useState<Record<number, ProjectAssetGroup>>({})
   const [groupRevision, setGroupRevision] = useState(0)
@@ -181,13 +176,6 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
       .catch(cause => { if (active) setLibraryError(errorMessage(cause)) })
     return () => { active = false }
   }, [tab, kind])
-
-  useEffect(() => {
-    if (!showCreate) return
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setShowCreate(false) }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [showCreate])
 
   async function withLibraryBusy(action: () => Promise<void>) {
     setLibraryBusy(true)
@@ -268,12 +256,6 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
     })
   }
 
-  function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!details.title.trim()) return
-    void onCreate(details)
-  }
-
   const label = kindLabel(kind)
   // Only a data URI whose MIME matches can reach the @font-face rule.
   const fontPreviewCss = preview?.family && /^font\/(ttf|otf|woff|woff2)$/.test(preview.mime)
@@ -285,10 +267,8 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
     <header className="books-home-header" onMouseDown={startWindowDrag}>
       <div className="books-brand"><span><BookOpen size={22}/></span><div><strong>EPUB Studio</strong><small>我的图书工作台</small></div></div>
       <div className="books-header-actions">
-        <button onClick={onImportBook} disabled={busy}><FilePlus2 size={16}/>导入 TXT / EPUB</button>
-        <button onClick={onImportProject} disabled={busy}><FolderOpen size={16}/>导入项目</button>
+        <button className="books-new" onClick={onImportBook} disabled={busy}><FilePlus2 size={16}/>导入 TXT / EPUB</button>
         <button onClick={() => setShowSettings(true)} title="设置" aria-label="设置"><Settings2 size={16}/>设置</button>
-        <button className="books-new" onClick={() => setShowCreate(true)} disabled={busy}><Plus size={17}/>新建工程</button>
       </div>
     </header>
     {busy && <div className="books-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>正在处理工程…</div>}
@@ -301,7 +281,7 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
       {(error || libraryError) && <div className="books-error" role="alert">{error || libraryError}</div>}
       {tab === 'projects' ? <section aria-label="工程书架">
         <div className="books-section-title"><div><span>LIBRARY</span><h1>我的工程</h1></div><p>{workspaces.length} 本书</p></div>
-        {workspaces.length === 0 ? <div className="books-empty"><BookOpen size={36}/><h2>书架还是空的</h2><p>创建工程并填写书名、作者，封面可以稍后上传。</p><button className="books-new" onClick={() => setShowCreate(true)}><Plus size={17}/>新建工程</button></div> : <div className="books-grid">
+        {workspaces.length === 0 ? <div className="books-empty"><BookOpen size={36}/><h2>书架还是空的</h2><p>导入 TXT 或 EPUB 文件，核对章节后创建工程。</p><button className="books-new" onClick={onImportBook} disabled={busy}><FilePlus2 size={17}/>导入 TXT / EPUB</button></div> : <div className="books-grid">
           {workspaces.map(workspace => <article className="books-item" key={workspace.id}>
             <button className="books-cover-button" onClick={() => onOpen(workspace.id)} disabled={busy} aria-label={`打开工程 ${workspace.title}`}>
               {workspace.coverImage ? <img src={workspace.coverImage} alt={`${workspace.title}封面`}/> : <div className="books-cover-fallback"><span>{workspace.title}</span><small>{workspace.author || '未知作者'}</small></div>}
@@ -309,7 +289,6 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
             <div className="books-item-caption"><button className="books-item-title" onClick={() => onOpen(workspace.id)} disabled={busy} title={workspace.title}>{workspace.title}</button><button className="books-item-menu" onClick={() => { if (window.confirm(`删除工程“${workspace.title}”？此操作无法撤销。`)) void onDelete(workspace.id) }} disabled={busy} title={`删除 ${workspace.title}`} aria-label={`删除 ${workspace.title}`}><Trash2 size={16}/></button></div>
             <p>{workspace.author || '未知作者'} · {workspace.chapterCount} 章</p>
           </article>)}
-          <button className="books-add-tile" onClick={() => setShowCreate(true)}><Plus size={32}/><span>新建工程</span></button>
         </div>}
       </section> : <section aria-label={label}>
         <div className="books-section-title"><div><span>SHARED ASSETS</span><h1>{label}</h1></div><button className="books-new" onClick={importAsset} disabled={libraryBusy}><Plus size={17}/>导入{label}</button></div>
@@ -318,21 +297,12 @@ export default function Home({ workspaces, busy, error, notice, onCreate, onOpen
         <div className="books-subhead">公用{label}<em>{assets.length}</em></div>
         {assets.length === 0 ? <div className="books-empty"><span>{tab === 'font' ? <Type size={36}/> : <ImageIcon size={36}/>}</span><h2>还没有公用{label}</h2><p>点击右上角导入，之后可在任何工程中使用。</p></div> : <div className="books-assets-grid">{assets.map(asset => <article className="books-asset-item" key={asset.id}>{tab === 'font' ? <div className="books-asset-symbol"><Type size={30}/></div> : <LazyImage name={asset.name} load={() => backend.getAsset(asset.id).then(data => data.dataUri)}/>}<strong title={asset.name}>{asset.name}</strong><small>{assetMeta(asset)}</small><div><button onClick={() => previewAsset(asset)} disabled={libraryBusy}>预览</button><button onClick={() => deleteAsset(asset)} disabled={libraryBusy} title={`删除 ${asset.name}`} aria-label={`删除 ${asset.name}`}><Trash2 size={16}/></button></div></article>)}</div>}
         <div className="books-subhead">工程{label}<em>{workspaces.length}</em></div>
-        {workspaces.length === 0 ? <p className="books-library-group-note">还没有工程，创建或导入一本后这里会列出它内嵌的{label}。</p> : workspaces.map(project => <ProjectGroup
+        {workspaces.length === 0 ? <p className="books-library-group-note">还没有工程，导入一本后这里会列出它内嵌的{label}。</p> : workspaces.map(project => <ProjectGroup
           key={`${project.id}-${groupRevision}`} project={project} kind={kind} group={groups[project.id]} groupError={groupErrors[project.id]}
           busy={libraryBusy} onLoad={loadGroup} onPreview={previewProjectAsset} onExtract={extractProjectAssets}/>)}
       </section>}
     </div></div>
     <footer className="books-home-status"><span>{libraryNotice || notice}</span><span>{busy || libraryBusy ? '处理中…' : '本机工程 · 公用资源库'}</span></footer>
     {showSettings && <SettingsDialog onClose={() => setShowSettings(false)}/>}
-    {showCreate && <div className="books-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setShowCreate(false) }}><form className="books-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-title" onSubmit={create}>
-      <div className="books-modal-heading"><div><span>NEW PROJECT</span><h2 id="create-title">创建工程</h2></div><button type="button" onClick={() => setShowCreate(false)} aria-label="关闭"><X size={19}/></button></div>
-      <p>填写图书基本信息。封面可在进入工程后上传。</p>
-      {error && <div className="books-error" role="alert">{error}</div>}
-      <label htmlFor="create-book-title">书名 <span>*</span></label><input id="create-book-title" value={details.title} onChange={event => setDetails(previous => ({...previous,title:event.target.value}))} autoFocus required placeholder="输入书名"/>
-      <label htmlFor="create-book-author">作者</label><input id="create-book-author" value={details.author} onChange={event => setDetails(previous => ({...previous,author:event.target.value}))} placeholder="输入作者"/>
-      <label htmlFor="create-book-language">语言</label><input id="create-book-language" value={details.language} onChange={event => setDetails(previous => ({...previous,language:event.target.value}))} placeholder="zh-CN"/>
-      <div className="books-modal-actions"><button type="button" onClick={() => setShowCreate(false)}>取消</button><button className="books-new" type="submit" disabled={busy || !details.title.trim()}>创建并编辑</button></div>
-    </form></div>}
   </div>
 }

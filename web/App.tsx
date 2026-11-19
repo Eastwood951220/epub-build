@@ -480,17 +480,6 @@ export default function App() {
     })
   }
 
-  async function openProject() {
-    if (!canReplace()) return
-    const path = await open({ multiple: false, filters: [{ name: 'EPUB Studio 项目', extensions: ['json'] }] })
-    if (typeof path !== 'string') return
-    await withBusy(async () => {
-      const next = await backend.loadProject(path)
-      const created = await backend.createWorkspace(next)
-      replaceBook(next, created.id, '项目文件已导入为新工程')
-    })
-  }
-
   async function saveProject() {
     if (workspaceId === null) return
     await withBusy(async () => {
@@ -507,17 +496,6 @@ export default function App() {
     await withBusy(async () => {
       await backend.saveProject(path, book)
       setNotice(`项目文件已导出：${path}`)
-    })
-  }
-
-  async function createWorkspace(details: { title: string; author: string; language: string }) {
-    await withBusy(async () => {
-      const next = createEmptyProject()
-      next.title = details.title.trim()
-      next.author = details.author.trim() || '未知作者'
-      next.language = details.language.trim() || 'zh-CN'
-      const created = await backend.createWorkspace(next)
-      replaceBook(next, created.id, '工程已创建')
     })
   }
 
@@ -875,11 +853,9 @@ export default function App() {
       busy={busy}
       error={error}
       notice={notice}
-      onCreate={createWorkspace}
       onOpen={openWorkspace}
       onDelete={deleteWorkspace}
       onImportBook={importFile}
-      onImportProject={openProject}
     />
     {volumeBatchOpen && <VolumeBatchDialog
       volumes={book.volumes}
@@ -953,7 +929,7 @@ export default function App() {
 
       <aside className="settings-panel" aria-label="图书设置与资源库"><div className="settings-inner"><div className="settings-tabs" role="tablist" aria-label="侧边栏"><button role="tab" aria-selected={settingsTab === 'settings'} className={settingsTab === 'settings' ? 'active' : ''} onClick={() => setSettingsTab('settings')}>图书设置</button><button role="tab" aria-selected={settingsTab === 'library'} className={settingsTab === 'library' ? 'active' : ''} onClick={() => setSettingsTab('library')}><LibraryBig size={15}/>资源库</button></div>{settingsTab === 'settings' ? <><div className="panel-heading"><div><span className="eyebrow">统一管理</span><h2>图书设置</h2></div></div>
         <section className="setting-section"><h3>基本信息</h3><label>书名<input value={book.title} onChange={event => updateBook(previous => ({ ...previous, title: event.target.value }))}/></label><label>作者<input value={book.author} onChange={event => updateBook(previous => ({ ...previous, author: event.target.value }))}/></label><label>语言<input value={book.language} onChange={event => updateBook(previous => ({ ...previous, language: event.target.value }))}/></label></section>
-        <section className="setting-section"><h3>图书封面</h3><p className="setting-help">创建工程时可留空，保存后会显示在工程书架，并写入 EPUB。</p>{book.coverImage ? <div className="cover-slot"><img src={book.coverImage} alt="图书封面预览"/><div><button className="button outline" onClick={() => chooseImage('coverImage')}>更换封面</button><button className="button subtle" onClick={() => updateBook(previous => ({ ...previous, coverImage: null }))}>移除</button></div></div> : <button className="image-add" onClick={() => chooseImage('coverImage')}><ImagePlus size={17}/>上传封面</button>}</section>
+        <section className="setting-section"><h3>图书封面</h3><p className="setting-help">导入时可不带封面，上传后会显示在工程书架，并写入 EPUB。</p>{book.coverImage ? <div className="cover-slot"><img src={book.coverImage} alt="图书封面预览"/><div><button className="button outline" onClick={() => chooseImage('coverImage')}>更换封面</button><button className="button subtle" onClick={() => updateBook(previous => ({ ...previous, coverImage: null }))}>移除</button></div></div> : <button className="image-add" onClick={() => chooseImage('coverImage')}><ImagePlus size={17}/>上传封面</button>}</section>
         <section className="setting-section"><h3>正文</h3><label>字体<select value={book.style.bodyFontFamily} onChange={event => chooseBookFont('bodyFontFamily', event.target.value)}>{availableFonts.map(font => <option key={font.value} value={font.value}>{font.label}</option>)}</select></label><div className="field-row"><label>字号<input type="number" min="10" max="48" value={book.style.bodyFontSize} onChange={event => setStyle('bodyFontSize', Number(event.target.value))}/></label><label>行距<input type="number" min="1.2" max="3" step="0.1" value={book.style.bodyLineHeight} onChange={event => setStyle('bodyLineHeight', Number(event.target.value))}/></label></div><div className="field-row"><label>段落间距（em）<input type="number" min="0" max="3" step="0.1" value={book.style.bodyParagraphSpacing ?? 0.9} onChange={event => setStyle('bodyParagraphSpacing', Number(event.target.value))}/></label><label>章节名距正文（px）<input type="number" min="0" max="160" step="2" value={book.style.chapterBodySpacing ?? 46} onChange={event => setStyle('chapterBodySpacing', Number(event.target.value))}/></label></div><label>对齐<select value={book.style.bodyAlign} onChange={event => setStyle('bodyAlign', event.target.value)}><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label><label className="setting-checkbox"><input type="checkbox" checked={!!book.style.bodyFirstLineIndent} onChange={event => setStyle('bodyFirstLineIndent', event.target.checked)}/>首行缩进两字（2em）</label></section>
         <section className="setting-section"><h3>详细设置</h3><div className="settings-shortcuts">
           <button type="button" onClick={() => setSettingsDialog('titles')}>标题与卷名<small>4 组样式</small></button>
